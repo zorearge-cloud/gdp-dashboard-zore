@@ -19,11 +19,10 @@ LINKS = [
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
 EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', 'ADET', 'FIYAT', 'YUKLEME_TARIHI']
 
-# --- CANLI DÖVİZ KURU MOTORU (GÜVENLİK CORUMALI) ---
-@st.cache_data(ttl=3600)  # Kurları saatte bir günceller, uygulamayı yavaşlatmaz
+# --- CANLI DÖVİZ KURU MOTORU ---
+@st.cache_data(ttl=3600)
 def get_live_rates():
-    # İnternet olmaması durumuna karşı 2026 yılı Güvenli Fallback (Yedek) Kurları
-    rates = {"EUR_TO_USD": 1.09, "CNY_TO_USD": 0.14, "PROUNCE": "Yedek Kur Panelden Okundu"}
+    rates = {"EUR_TO_USD": 1.09, "CNY_TO_USD": 0.138, "PROUNCE": "Yedek Kur Panelden Okundu"}
     try:
         response = requests.get("https://open.er-api.com/v6/latest/USD", timeout=4)
         if response.status_code == 200:
@@ -36,7 +35,7 @@ def get_live_rates():
                 rates["CNY_TO_USD"] = 1.0 / cny_rate
                 rates["PROUNCE"] = "Canlı Kur API'den Çekildi"
     except:
-        pass  # Herhangi bir hata durumunda yedek kurlar sistemi ayakta tutar
+        pass
     return rates
 
 rates = get_live_rates()
@@ -59,7 +58,7 @@ def clean_data(df, rates):
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
     
-    # Gelişmiş Döviz Temizleme ve USD Değerine Dönüştürme Algoritması
+    # Sadece Hücre İçindeki Sembale Bakan Kur Dönüşüm Algoritması
     if 'FIYAT' in df.columns:
         def parse_price_to_usd(val):
             if pd.isna(val):
@@ -67,19 +66,19 @@ def clean_data(df, rates):
             
             val_str = str(val).strip()
             
-            # Para Birimi Tespiti
-            currency = 'USD'  # Varsayılan
+            # Sadece hücre içinde açıkça karakter kontrolü yapıyoruz
+            currency = 'USD'  # Varsayılan değerimiz doğrudan Dolar
             if '¥' in val_str or 'CNY' in val_str.upper() or 'RMB' in val_str.upper():
                 currency = 'CNY'
             elif '€' in val_str or 'EUR' in val_str.upper():
                 currency = 'EUR'
             
-            # Sembollerin ve harflerin temizlenmesi
+            # Sembolleri temizle
             for clean_target in ['¥', '€', '$', 'CNY', 'EUR', 'USD', 'RMB', 'cny', 'eur', 'usd']:
                 val_str = val_str.replace(clean_target, '')
             val_str = val_str.strip()
             
-            # Türkçe/Yabancı Karışık Sayısal Format Düzeltme (Örn: "4,70" -> "4.70")
+            # Sayısal format düzeltme (Virgül/Nokta karmaşası için)
             if ',' in val_str and '.' in val_str:
                 if val_str.find(',') > val_str.find('.'):
                     val_str = val_str.replace('.', '').replace(',', '.')
@@ -93,16 +92,17 @@ def clean_data(df, rates):
             except:
                 numeric_price = 0.0
                 
-            # Kur Dönüşüm Hesaplaması
+            # Kur dönüşümü (Sadece Yuan veya Euro simgesi yakalanmışsa tetiklenir)
             if currency == 'CNY':
                 return numeric_price * rates["CNY_TO_USD"]
             elif currency == 'EUR':
                 return numeric_price * rates["EUR_TO_USD"]
-            return numeric_price
+            
+            return numeric_price  # Eğer simge yoksa veya $ ise doğrudan kendisini döndürür
 
         df['FIYAT'] = df['FIYAT'].apply(parse_price_to_usd)
     
-    # Güvenli Sermaye Hesaplaması (Artık tüm girdiler net USD tabanlı)
+    # Güvenli Sermaye Hesaplaması
     df['TOPLAM_SERMAYE'] = df['ADET'] * df['FIYAT']
     
     # Metinsel Alan Sabitleme Katsayısı
@@ -143,8 +143,6 @@ df_dashboard, data_pool = get_all_data(rates)
 
 # --- NAVİGASYON VE DÖVİZ BİLGİSİ ---
 st.sidebar.title("ZORE YÖNETİM PANELİ")
-
-# Yan menüde aktif kullanılan kurların durumunu şeffafça gösterelim
 st.sidebar.markdown(f"**Döviz Durumu:** `{rates['PROUNCE']}`")
 st.sidebar.text(f"1 EUR = {rates['EUR_TO_USD']:.4f} $")
 st.sidebar.text(f"1 CNY = {rates['CNY_TO_USD']:.4f} $")
@@ -242,7 +240,6 @@ elif page == "2. Firma Bazlı Analiz":
             
             st.subheader(f"{selected_firma} Sipariş Geçmişi")
             
-            # Gösterilen tablodaki fiyat görünümünü de netleştirmek için formatlayalım
             display_df = firma_df.copy()
             display_df['FIYAT'] = display_df['FIYAT'].map('{:,.2f} $'.format)
             display_df['TOPLAM_SERMAYE'] = display_df['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
@@ -261,7 +258,6 @@ elif page == "3. Ham Veri":
                 combined_df = pd.concat(df_list, ignore_index=True)
                 combined_df = combined_df.drop_duplicates()
                 
-                # Ham veri tablosunda da fiyatların optimize halini gösterelim
                 raw_display = combined_df.copy()
                 raw_display['FIYAT'] = raw_display['FIYAT'].map('{:,.2f} $'.format)
                 raw_display['TOPLAM_SERMAYE'] = raw_display['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
