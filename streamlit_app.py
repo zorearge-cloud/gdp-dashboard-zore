@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(layout="wide")
-st.title("ZORE MERKEZİ VERİ HAVUZU")
+st.title("ZORE VERİ TESPİT PANELİ (DEBUG MODE)")
 
-# Linkleri otomatik olarak xlsx formatına çevirerek listeye aldım
 links = [
     "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=xlsx",
@@ -14,28 +13,23 @@ links = [
 ]
 
 target_tabs = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
-data_pool = {tab: [] for tab in target_tabs}
 
-# Linkleri tara, sekmeleri bul, havuza at
+st.write("---")
+st.subheader("SİSTEMİN GÖRDÜĞÜ SEKME İSİMLERİ (DEBUG):")
+
 for link in links:
+    st.write(f"Link: {link[:40]}...")
     try:
         xl = pd.ExcelFile(link)
-        for sheet_name in xl.sheet_names:
-            if sheet_name in target_tabs:
-                df = pd.read_excel(xl, sheet_name=sheet_name)
-                data_pool[sheet_name].append(df)
-    except:
-        continue
+        found_sheets = xl.sheet_names
+        st.success(f"Dosya açıldı. Bulunan sekmeler: {found_sheets}")
+        
+        # Sekmeleri kontrol et
+        for target in target_tabs:
+            if target not in found_sheets:
+                st.warning(f"DİKKAT: '{target}' sekmesi bu dosyada YOK!")
+    except Exception as e:
+        st.error(f"Dosya AÇILAMADI! Hata: {e}")
 
-# Arayüzü oluştur ve verileri göster
-tabs = st.tabs(target_tabs)
-
-for i, tab in enumerate(tabs):
-    with tab:
-        current_tab = target_tabs[i]
-        if data_pool[current_tab]:
-            # Tüm linklerden gelen veriyi alt alta birleştir
-            combined_df = pd.concat(data_pool[current_tab], ignore_index=True)
-            st.dataframe(combined_df, use_container_width=True, hide_index=True)
-        else:
-            st.write(f"Bu sekme için veri bulunamadı.")
+st.write("---")
+st.info("Eğer yukarıda 'Yok' yazısını görüyorsan, Google Sheets içindeki sekme isminin yazılışı kodunkiyle birebir aynı değildir (bir boşluk bile fark eder).")
