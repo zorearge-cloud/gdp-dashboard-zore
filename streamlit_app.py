@@ -2,45 +2,40 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(layout="wide")
-st.title("ZORE MASTER VERİ PANELİ")
+st.title("ZORE MERKEZİ VERİ HAVUZU")
 
-# LİNK EŞLEŞTİRME:
-# Buraya 5 linkini yaz. Hangi sekme hangi linke gidiyorsa yanına onu yaz.
-# Eğer 6. sekme için özel bir linkin yoksa, onu içeren linki tekrar yaz.
-URL_CONFIG = {
-    "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=csv",
-    "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=csv",
-    "https://docs.google.com/spreadsheets/d/1S1kTptWUEf705cBLw9P9mL6rrqbVjbcp1xk_hgQ-Ny0/export?format=csv",
-    "https://docs.google.com/spreadsheets/d/1VKb6za4Fse5XrGawPG6qvrQZuFhDRGaAysmADGIC7Wc/export?format=csv",
-    "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
-}
+# Linkleri otomatik olarak xlsx formatına çevirerek listeye aldım
+links = [
+    "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=xlsx",
+    "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=xlsx",
+    "https://docs.google.com/spreadsheets/d/1S1kTptWUEf705cBLw9P9mL6rrqbVjbcp1xk_hgQ-Ny0/export?format=xlsx",
+    "https://docs.google.com/spreadsheets/d/1VKb6za4Fse5XrGawPG6qvrQZuFhDRGaAysmADGIC7Wc/export?format=xlsx",
+    "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=xlsx"
+]
 
-# 6 SEKME ÇEŞİDİ
-tabs = st.tabs(["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"])
+target_tabs = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
+data_pool = {tab: [] for tab in target_tabs}
 
-def get_raw_data(url, tab_name):
+# Linkleri tara, sekmeleri bul, havuza at
+for link in links:
     try:
-        # Veriyi excel olarak çek, sheet_name ile o sekmeye odaklan
-        # Eğer sheet_name bulunamazsa ValueError verir, except bloğu yakalar
-        df = pd.read_excel(url, sheet_name=tab_name)
-        return df
-    except Exception:
-        # Sekme yoksa veya dosya okunamıyorsa None döner
-        return None
+        xl = pd.ExcelFile(link)
+        for sheet_name in xl.sheet_names:
+            if sheet_name in target_tabs:
+                df = pd.read_excel(xl, sheet_name=sheet_name)
+                data_pool[sheet_name].append(df)
+    except:
+        continue
 
-# Sekmeleri döngüye al
+# Arayüzü oluştur ve verileri göster
+tabs = st.tabs(target_tabs)
+
 for i, tab in enumerate(tabs):
     with tab:
-        tab_name = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"][i]
-        url = URL_CONFIG[tab_name]
-        
-        if "BURAYA" in url:
-            st.warning(f"Lütfen {tab_name} için linki URL_CONFIG kısmına ekle.")
+        current_tab = target_tabs[i]
+        if data_pool[current_tab]:
+            # Tüm linklerden gelen veriyi alt alta birleştir
+            combined_df = pd.concat(data_pool[current_tab], ignore_index=True)
+            st.dataframe(combined_df, use_container_width=True, hide_index=True)
         else:
-            df = get_raw_data(url, tab_name)
-            
-            if df is not None:
-                # Veriye ASLA dokunmuyoruz, ham haliyle basıyoruz
-                st.dataframe(df, use_container_width=True, hide_index=True)
-            else:
-                st.error(f"Bu dosyada '{tab_name}' sayfası bulunamadı veya link hatalı.")
+            st.write(f"Bu sekme için veri bulunamadı.")
