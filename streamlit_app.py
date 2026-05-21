@@ -17,7 +17,7 @@ st.markdown("""
         box-shadow: 0 4px 15px rgba(0,0,0,0.4);
     }
     </style>
-""", unsafe_allow_index=True)
+""", unsafe_allow_html=True)
 
 st.title("📊 ZORE SİPARİŞ KONTROL MERKEZİ")
 st.write("---")
