@@ -3,7 +3,7 @@ import pandas as pd
 
 # Sayfa ayarları
 st.set_page_config(layout="wide")
-st.title("ZORE MERKEZİ VERİ HAVUZU (GÜNCEL)")
+st.title("ZORE MERKEZİ VERİ HAVUZU")
 
 # Link listesi
 LINKS = [
@@ -16,48 +16,49 @@ LINKS = [
 
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
 
-# Gelişmiş temizleme fonksiyonu
 def clean_data(df):
-    # 1. Tamamen boş sütunları ve satırları at
-    df = df.dropna(axis=1, how='all')
-    df = df.dropna(axis=0, how='all')
+    # 1. Aynı isimli sütunlar varsa (örneğin TÜR) ilkini tut, sonrakileri sil
+    df = df.loc[:, ~df.columns.duplicated()]
     
-    # 2. 'Unnamed' (boş başlık) olan sütunları komple at
+    # 2. 'Unnamed' olan sütunları komple at
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
     
-    # 3. Tarih sütunlarından saatleri temizle (sadece tarih kalsın)
+    # 3. Tarih sütunlarından saatleri temizle
     date_cols = ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']
     for col in date_cols:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
-            
-    # 4. YUKLEME_TARIHI sütununa kadar olan kısmı al, gerisini at
+    
+    # 4. YUKLEME_TARIHI sütununu bul ve ondan sonrasını tamamen at
     if 'YUKLEME_TARIHI' in df.columns:
-        idx = df.columns.get_loc('YUKLEME_TARIHI')
-        # İlk sütundan, YUKLEME_TARIHI'nin olduğu yere kadar olan tüm sütunları al
-        df = df.iloc[:, :idx+1]
-        
+        col_index = df.columns.get_loc('YUKLEME_TARIHI')
+        # İlk sütundan, YUKLEME_TARIHI'ne kadar olanları al (gerisini kes)
+        df = df.iloc[:, :col_index + 1]
+    
+    # 5. Boş satırları ve sütunları temizle
+    df = df.dropna(how='all')
+    df = df.dropna(axis=1, how='all')
+    
     return df
 
 # Veri havuzunu hazırla
 data_pool = {tab: [] for tab in TARGET_TABS}
 
-# Linkleri tara ve verileri çek
+# Linkleri tara
 for link in LINKS:
     try:
         xl = pd.ExcelFile(link)
         for tab in TARGET_TABS:
             if tab in xl.sheet_names:
                 df = pd.read_excel(xl, sheet_name=tab)
-                # Veriyi gelişmiş fonksiyondan geçir
+                # Temizleme işleminden geçir
                 df_clean = clean_data(df)
                 if not df_clean.empty:
                     data_pool[tab].append(df_clean)
     except Exception as e:
-        # Hataları gizliyoruz ki arayüz bozulmasın
         pass
 
-# Sekmeleri oluştur ve verileri göster
+# Arayüzü oluştur
 tabs = st.tabs(TARGET_TABS)
 
 for i, tab_ui in enumerate(tabs):
@@ -66,9 +67,9 @@ for i, tab_ui in enumerate(tabs):
         df_list = data_pool[tab_name]
         
         if df_list:
-            # Tüm dosyalardan gelen veriyi alt alta birleştir
+            # Tüm verileri birleştir
             combined_df = pd.concat(df_list, ignore_index=True)
-            # Tekrar eden satır varsa sil
+            # Mükerrer satırları temizle
             combined_df = combined_df.drop_duplicates()
             
             st.write(f"Toplam {len(combined_df)} satır veri.")
