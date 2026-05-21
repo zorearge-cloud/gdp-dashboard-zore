@@ -3,7 +3,6 @@ import pandas as pd
 
 st.set_page_config(layout="wide")
 
-# 5 linkin sabit
 URLS = [
     "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=csv",
     "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=csv",
@@ -17,21 +16,27 @@ def get_data():
     all_dfs = []
     for url in URLS:
         try:
+            # Sütunlara dokunmuyoruz
             df = pd.read_csv(url)
             all_dfs.append(df)
         except Exception as e:
-            st.warning(f"Bir link okunamadı: {url}")
-    return pd.concat(all_dfs, ignore_index=True)
+            continue
+    
+    # Hepsi birleştiriliyor
+    master_df = pd.concat(all_dfs, ignore_index=True)
+    
+    # Tarihe göre sıralama yapmak için geçici format düzeltme
+    # (Hatalı tarih formatı olursa diye errors='coerce' ekledim, çökme yaşanmasın diye)
+    master_df['SIPARIS_TARIHI'] = pd.to_datetime(master_df['SIPARIS_TARIHI'], dayfirst=True, errors='coerce')
+    
+    # Tarihe göre sırala (Eskiden yeniye)
+    master_df = master_df.sort_values(by='SIPARIS_TARIHI', ascending=True)
+    
+    return master_df
 
+# Veriyi çek
 df = get_data()
 
-# Sütun adlarına hiç dokunmuyoruz. 
-# 'TUR' sütununu kategori olarak baz alarak sekmeleri oluşturuyoruz.
-# Eğer kategori sütununun adı 'TUR' değilse, lütfen söyle, burayı ona göre düzelteyim.
-kategoriler = df['TUR'].dropna().unique()
-tabs = st.tabs([str(k) for k in kategoriler])
-
-for i, kategori in enumerate(kategoriler):
-    with tabs[i]:
-        st.write(f"### {kategori}")
-        st.dataframe(df[df['TUR'] == kategori], use_container_width=True)
+# Ekrana bas
+st.title("Master Veri Tablosu")
+st.dataframe(df, use_container_width=True, height=800)
