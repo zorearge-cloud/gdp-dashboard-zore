@@ -3,7 +3,7 @@ import pandas as pd
 
 # Sayfa ayarları
 st.set_page_config(layout="wide")
-st.title("ZORE MERKEZİ VERİ HAVUZU")
+st.title("ZORE MERKEZİ VERİ HAVUZU (GÜNCEL)")
 
 # Link listesi
 LINKS = [
@@ -14,20 +14,28 @@ LINKS = [
     "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=xlsx"
 ]
 
-# İstediğin 6 sekme
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
 
-# Veri temizleme fonksiyonu
+# Gelişmiş temizleme fonksiyonu
 def clean_data(df):
-    # 1. Tarih sütunlarından saatleri temizle
+    # 1. Tamamen boş sütunları ve satırları at
+    df = df.dropna(axis=1, how='all')
+    df = df.dropna(axis=0, how='all')
+    
+    # 2. 'Unnamed' (boş başlık) olan sütunları komple at
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    
+    # 3. Tarih sütunlarından saatleri temizle (sadece tarih kalsın)
     date_cols = ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']
     for col in date_cols:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
-    
-    # 2. Son 2 sütunu sil
-    if df.shape[1] > 2:
-        df = df.iloc[:, :-2]
+            
+    # 4. YUKLEME_TARIHI sütununa kadar olan kısmı al, gerisini at
+    if 'YUKLEME_TARIHI' in df.columns:
+        idx = df.columns.get_loc('YUKLEME_TARIHI')
+        # İlk sütundan, YUKLEME_TARIHI'nin olduğu yere kadar olan tüm sütunları al
+        df = df.iloc[:, :idx+1]
         
     return df
 
@@ -41,11 +49,13 @@ for link in LINKS:
         for tab in TARGET_TABS:
             if tab in xl.sheet_names:
                 df = pd.read_excel(xl, sheet_name=tab)
-                # Veriyi temizle
+                # Veriyi gelişmiş fonksiyondan geçir
                 df_clean = clean_data(df)
-                data_pool[tab].append(df_clean)
+                if not df_clean.empty:
+                    data_pool[tab].append(df_clean)
     except Exception as e:
-        st.sidebar.error(f"Dosya okuma hatası: {e}")
+        # Hataları gizliyoruz ki arayüz bozulmasın
+        pass
 
 # Sekmeleri oluştur ve verileri göster
 tabs = st.tabs(TARGET_TABS)
@@ -58,6 +68,10 @@ for i, tab_ui in enumerate(tabs):
         if df_list:
             # Tüm dosyalardan gelen veriyi alt alta birleştir
             combined_df = pd.concat(df_list, ignore_index=True)
+            # Tekrar eden satır varsa sil
+            combined_df = combined_df.drop_duplicates()
+            
+            st.write(f"Toplam {len(combined_df)} satır veri.")
             st.dataframe(combined_df, use_container_width=True, hide_index=True)
         else:
-            st.warning(f"Bu sekme ({tab_name}) için hiçbir dosyada veri bulunamadı.")
+            st.warning(f"Bu sekme ({tab_name}) için veri bulunamadı.")
