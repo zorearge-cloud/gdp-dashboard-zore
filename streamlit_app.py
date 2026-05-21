@@ -43,48 +43,39 @@ def get_live_rates():
 rates = get_live_rates()
 
 def clean_data(df, rates):
-    # Duplike sütunları temizle
     df = df.loc[:, ~df.columns.duplicated()]
     
-    # Tarihleri düzelt
     for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
             
-    # WHITELIST YÖNTEMİ
     available_cols = [c for c in EXPECTED_COLUMNS if c in df.columns]
     df = df[available_cols].copy()
     df = df.dropna(how='all')
     
-    # Adet sütununu sayıya çevir
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
     
-    # Sadece Hücre İçindeki Sembale/Maskeye Bakan Kur Dönüşüm Algoritması
     if 'FIYAT' in df.columns:
         def parse_price_to_usd(val):
             if pd.isna(val):
                 return 0.0
             
             val_str = str(val).strip()
-            currency = 'USD'  # Varsayılan değer doğrudan Dolar
+            currency = 'USD'
             
-            # Olası tüm Yuan ve Euro varyasyonları
             yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元']
             euro_symbols = ['€', 'EUR']
             
-            # Hücre metninde açıkça var mı kontrol et
             if any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
                 currency = 'CNY'
             elif any(sym in val_str for sym in euro_symbols) or any(sym in val_str.upper() for sym in euro_symbols):
                 currency = 'EUR'
             
-            # Sembolleri temizle
             for clean_target in yuan_symbols + euro_symbols + ['$', 'usd', 'USD']:
                 val_str = val_str.replace(clean_target, '')
             val_str = val_str.strip()
             
-            # Sayısal format düzeltme (Virgül/Nokta karmaşası için)
             if ',' in val_str and '.' in val_str:
                 if val_str.find(',') > val_str.find('.'):
                     val_str = val_str.replace('.', '').replace(',', '.')
@@ -98,7 +89,6 @@ def clean_data(df, rates):
             except:
                 numeric_price = 0.0
                 
-            # Kur dönüşümü
             if currency == 'CNY':
                 return numeric_price * rates["CNY_TO_USD"]
             elif currency == 'EUR':
@@ -108,10 +98,8 @@ def clean_data(df, rates):
 
         df['FIYAT'] = df['FIYAT'].apply(parse_price_to_usd)
     
-    # Güvenli Sermaye Hesaplaması
     df['TOPLAM_SERMAYE'] = df['ADET'] * df['FIYAT']
     
-    # Metinsel Alan Sabitleme ve Karışık Tip Temizliği
     for text_col in ['FIRMA', 'TUR', 'MALIN CINSI', 'BARKOD']:
         if text_col in df.columns:
             df[text_col] = df[text_col].fillna("BELİRTİLMEMİŞ").astype(str).str.strip()
@@ -119,7 +107,6 @@ def clean_data(df, rates):
             
     return df
 
-# --- VERİ TOPLAMA VE BİRLEŞTİRME (MASKE OKUYUCU MOTOR) ---
 @st.cache_data(ttl=600)
 def get_all_data(rates):
     all_data_list = []
@@ -131,7 +118,6 @@ def get_all_data(rates):
             if response.status_code != 200:
                 continue
             
-            # Dosyayı açıkça biçim maskelerini okuyabilmek için openpyxl ile hafızaya alıyoruz
             wb = openpyxl.load_workbook(io.BytesIO(response.content), data_only=True)
             
             for tab in TARGET_TABS:
@@ -141,7 +127,6 @@ def get_all_data(rates):
                     if not rows:
                         continue
                     
-                    # Başlıkları çek
                     headers = [str(cell.value).strip() if cell.value is not None else '' for cell in rows[0]]
                     
                     try:
@@ -160,10 +145,8 @@ def get_all_data(rates):
                                 break
                             val = cell.value
                             
-                            # İŞTE BURASI: Hücrenin arkasındaki gizli biçimlendirme maskesini yakalıyoruz!
                             if idx == fiyat_idx and val is not None:
                                 fmt = str(cell.number_format).upper()
-                                # Eğer Excel biçim maskesinde Yuan sembol kodları varsa değerin başına '¥' ekle
                                 if any(x in fmt for x in ['¥', '￥', 'CNY', '元']):
                                     val = f"¥{val}"
                                 elif any(x in fmt for x in ['€', 'EUR']):
@@ -216,40 +199,50 @@ if page == "1. Genel Dashboard":
 
         st.markdown("---")
         
+        # 1 ve 2. Grafikler dikey sütun grafik haline getirildi
         g1, g2 = st.columns(2)
         top_sips = df_dashboard.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index()
-        fig1 = px.bar(top_sips, x='ADET', y='MALIN CINSI', orientation='h', title="1. En Çok Sipariş Edilen 10 Ürün (Adet)", color='ADET')
+        fig1 = px.bar(top_sips, x='MALIN CINSI', y='ADET', title="1. En Çok Sipariş Edilen 10 Ürün (Adet)", color='ADET')
         g1.plotly_chart(fig1, use_container_width=True)
         
         top_money = df_dashboard.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig2 = px.bar(top_money, x='TOPLAM_SERMAYE', y='MALIN CINSI', orientation='h', title="2. En Çok Sermaye Yatırılan 10 Ürün ($)", color='TOPLAM_SERMAYE')
+        fig2 = px.bar(top_money, x='MALIN CINSI', y='TOPLAM_SERMAYE', title="2. En Çok Sermaye Yatırılan 10 Ürün ($)", color='TOPLAM_SERMAYE')
         g2.plotly_chart(fig2, use_container_width=True)
 
+        # 3. ve 4. Grafikler Donut yapıldı, etiket ve yüzdeler dilim içine eklendi
         g3, g4 = st.columns(2)
         top_firma = df_dashboard.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
         fig3 = px.pie(top_firma, values='TOPLAM_SERMAYE', names='FIRMA', title="3. Harcama Yapılan İlk 10 Firma", hole=0.4)
+        fig3.update_traces(textinfo='label+percent')
         g3.plotly_chart(fig3, use_container_width=True)
         
         top_tur = df_dashboard.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig4 = px.bar(top_tur, x='TUR', y='TOPLAM_SERMAYE', title="4. Tür Bazlı Harcama Dağılımı (USD)", color='TUR')
+        fig4 = px.pie(top_tur, values='TOPLAM_SERMAYE', names='TUR', title="4. Tür Bazlı Harcama Dağılımı (USD)", hole=0.4)
+        fig4.update_traces(textinfo='label+percent')
         g4.plotly_chart(fig4, use_container_width=True)
 
+        # Zaman bazlı grafikler için 2026 yılı filtresi (Kronolojik sıralı)
+        df_2026 = df_dashboard[df_dashboard['SIPARIS_AY'].str.startswith('2026', na=False)].copy()
+        df_2026 = df_2026.sort_values('SIPARIS_AY')
+
+        # 5, 6 ve 7. Grafikler 2026 yılından başlıyor ve çizgi grafik yapısında sadeleştirildi
         g5, g6 = st.columns(2)
-        trend_firma = df_dashboard.groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().reset_index()
-        fig5 = px.line(trend_firma, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='FIRMA', title="5. Aylık Firma Harcama Trendi ($)")
+        trend_firma = df_2026.groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
+        fig5 = px.line(trend_firma, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='FIRMA', title="5. Aylık Firma Harcama Trendi ($)", markers=True)
         g5.plotly_chart(fig5, use_container_width=True)
         
-        trend_tur = df_dashboard.groupby(['SIPARIS_AY', 'TUR'])['TOPLAM_SERMAYE'].sum().reset_index()
-        fig6 = px.area(trend_tur, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='TUR', title="6. Aylık Tür Harcama Trendi ($)")
+        trend_tur = df_2026.groupby(['SIPARIS_AY', 'TUR'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
+        fig6 = px.line(trend_tur, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='TUR', title="6. Aylık Tür Harcama Trendi ($)", markers=True)
         g6.plotly_chart(fig6, use_container_width=True)
 
         g7, g8 = st.columns(2)
-        trend_total = df_dashboard.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
+        trend_total = df_2026.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
         fig7 = px.line(trend_total, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title="7. Aylık Toplam Sermaye Akışı ($)", markers=True)
         g7.plotly_chart(fig7, use_container_width=True)
         
+        # 8. Grafik dikey sütun grafik haline getirildi
         top_barcode = df_dashboard.groupby('BARKOD').agg({'ADET': 'sum', 'MALIN CINSI': 'first'}).nlargest(10, 'ADET').reset_index()
-        fig8 = px.bar(top_barcode, x='ADET', y='MALIN CINSI', title="8. Barkod Bazlı Top 10 Ürün", text='BARKOD', color='ADET')
+        fig8 = px.bar(top_barcode, x='MALIN CINSI', y='ADET', title="8. Barkod Bazlı Top 10 Ürün", text='BARKOD', color='ADET')
         g8.plotly_chart(fig8, use_container_width=True)
 
 # --- SAYFA 2: FİRMA BAZLI ANALİZ ---
@@ -278,7 +271,8 @@ elif page == "2. Firma Bazlı Analiz":
             col_a, col_b = st.columns(2)
             
             if not firma_df.empty and firma_df['TOPLAM_SERMAYE'].sum() > 0:
-                fig_a = px.pie(firma_df, values='TOPLAM_SERMAYE', names='TUR', title=f"{selected_firma} Ürün Kategorisi Dağılımı")
+                fig_a = px.pie(firma_df, values='TOPLAM_SERMAYE', names='TUR', title=f"{selected_firma} Ürün Kategorisi Dağılımı", hole=0.4)
+                fig_a.update_traces(textinfo='label+percent')
                 col_a.plotly_chart(fig_a, use_container_width=True)
             else:
                 col_a.info("Grafik için yeterli ciro verisi yok.")
