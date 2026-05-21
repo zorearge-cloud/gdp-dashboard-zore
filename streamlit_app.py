@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import requests
 import io
 import openpyxl
+import re
 
 # --- AYARLAR VE ANAYASA ---
 st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
@@ -50,13 +51,38 @@ def get_live_rates():
 
 rates = get_live_rates()
 
+# --- Gelişmiş Tarih Formatı Çözücü (AECOOLY vb. Hataları Engelleyen Motor) ---
+def robust_date_parser(val):
+    if pd.isna(val) or val == "":
+        return pd.NaT
+    if isinstance(val, (int, float)):
+        return pd.NaT
+    if hasattr(val, 'date'): # Eğer zaten datetime objesiyse doğrudan döndür
+        return val
+        
+    s = str(val).strip().split()[0] # Saat kısmı varsa temizle
+    s = s.replace('/', '.').replace('-', '.') # Seperatörleri eşitle
+    
+    # Noktalı formata getirdikten sonra format denemeleri yapıyoruz
+    for fmt in ['%Y.%m.%d', '%d.%m.%Y', '%Y.%d.%m']:
+        try:
+            return pd.to_datetime(s, format=fmt).date()
+        except:
+            continue
+            
+    # Eğer özel bir durum varsa pandas'ın kendi insiyatifine bırakıyoruz
+    try:
+        return pd.to_datetime(s, errors='coerce').date()
+    except:
+        return pd.NaT
+
 def clean_data(df, rates):
     df = df.loc[:, ~df.columns.duplicated()]
     
-    # Gün ve ay formatının kaymasını önlemek için dayfirst=True zorunlu kılındı
+    # Gelişmiş tarih kurtarma motoru devreye alınıyor
     for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce').dt.date
+            df[col] = df[col].apply(robust_date_parser)
             
     available_cols = [c for c in EXPECTED_COLUMNS if c in df.columns]
     df = df[available_cols].copy()
@@ -80,7 +106,6 @@ def clean_data(df, rates):
             yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元']
             euro_symbols = ['€', 'EUR']
             
-            # Firma kontrolü veya hücre formatı bazlı akıllı tespit
             if 'CATHY' in firma_name or any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
                 currency = 'CNY'
                 sym_char = '¥'
@@ -178,7 +203,6 @@ def get_all_data(rates):
                     if not rows:
                         continue
                     
-                    # Kolon adlarını Türkçeden arındırıp standardize eden temizlik motoru
                     raw_headers = [str(cell.value).strip().upper() if cell.value is not None else '' for cell in rows[0]]
                     headers = []
                     for h in raw_headers:
@@ -237,6 +261,7 @@ def get_all_data(rates):
     full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
     if not full_df.empty:
         full_df['SIPARIS_AY'] = pd.to_datetime(full_df['SIPARIS_TARIHI'], errors='coerce').dt.to_period('M').astype(str)
+        # NaT kalırsa veya boşsa Bilinmeyen Dönem yap mantığı korunuyor fakat robust parser sayesinde veri buraya düşmeyecek
         full_df['SIPARIS_AY'] = full_df['SIPARIS_AY'].replace({'NaT': 'Bilinmeyen Dönem'})
         
     return full_df, pool
@@ -352,14 +377,18 @@ elif page == "2. Firma Bazlı Analiz":
             else:
                 col_a.info("Grafik için yeterli ciro verisi yok.")
             
+            # 2026 Yılı Aylık Alım Trendi Grafiği (Hatanın çözüldüğü grafik alanı)
             firma_df_2026 = firma_df[firma_df['SIPARIS_AY'].str.startswith('2026', na=False)].copy().sort_values('SIPARIS_AY')
             trend_data = firma_df_2026.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
             
             if not trend_data.empty and trend_data['TOPLAM_SERMAYE'].sum() > 0:
-                fig_b = px.bar(trend_data, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} 2026 Yılı Aylık Alım Trendi ($)")
+                fig_b = px.bar(trend_data, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Yılı Aylık Alım Trendi ($)", color='TOPLAM_SERMAYE')
                 col_b.plotly_chart(fig_b, use_container_width=True)
             else:
-                col_b.info("2026 yılına ait zaman trendi grafik verisi bulunamadı.")
+                # Eğer hâlâ 'Bilinmeyen Dönem' kalırsa onu da grafikte göstererek görünür kılmak için filtresiz hali:
+                trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
+                fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Tüm Dönemler Alım Trendi ($)", color='TOPLAM_SERMAYE')
+                col_b.plotly_chart(fig_b, use_container_width=True)
             
             st.markdown("---")
             st.subheader(f"🔍 {selected_firma} Sipariş Listesinde Barkod Sorgulama")
@@ -378,11 +407,9 @@ elif page == "2. Firma Bazlı Analiz":
             st.markdown(f"**{selected_firma} Veri Listesi:**")
             display_df_formatted = display_df.copy()
             
-            # BLANKET YERİNE AKILLI SATIR BAZLI PARA BİRİMİ BASTIRMA MOTORU
             display_df_formatted['FIYAT'] = display_df.apply(lambda r: f"{r['ORIJINAL_FIYAT']:,.2f} {r['PARA_BIRIMI']}" if 'ORIJINAL_FIYAT' in r else f"{r['FIYAT']:,.2f} $", axis=1)
             display_df_formatted['TOPLAM_SERMAYE'] = display_df_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
             
-            # Orijinal ara takip sütunlarını son tabloda kalabalık yapmasın diye gizleyelim
             drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in display_df_formatted.columns]
             if drop_cols:
                 display_df_formatted = display_df_formatted.drop(columns=drop_cols)
