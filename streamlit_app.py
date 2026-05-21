@@ -10,7 +10,7 @@ st.write("---")
 
 # 2. GOOGLE SHEETS ENTEGRASYONU
 # Buraya senin az önce güncellediğin ve herkese açık yaptığın Google Sheets linkini koyduk
-SHEETS_URL = "https://docs.google.com/spreadsheets/d/1XgX0mN2Gz1_Wc-8gGj997pYqZ_GgO_L9S06I76yC50s/export?format=csv"
+SHEETS_URL = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
 
 @st.cache_data(ttl=30) # Veriyi 30 saniyede bir arkada otomatik tazeler
 def load_data():
