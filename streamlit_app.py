@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import requests
+import io
+import openpyxl
 
 # --- AYARLAR VE ANAYASA ---
 st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
@@ -58,28 +60,26 @@ def clean_data(df, rates):
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
     
-    # Sadece Hücre İçindeki Sembale Bakan Kur Dönüşüm Algoritması
+    # Sadece Hücre İçindeki Sembale/Maskeye Bakan Kur Dönüşüm Algoritması
     if 'FIYAT' in df.columns:
         def parse_price_to_usd(val):
             if pd.isna(val):
                 return 0.0
             
-            # Hücre içeriğini metne çevirip temizliyoruz
             val_str = str(val).strip()
+            currency = 'USD'  # Varsayılan değer doğrudan Dolar
             
-            currency = 'USD'  # Varsayılan değerimiz doğrudan Dolar
+            # Olası tüm Yuan ve Euro varyasyonları
+            yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元']
+            euro_symbols = ['€', 'EUR']
             
-            # Olası tüm Yuan ve Euro sembol varyasyonları (Karakter kodları dahil)
-            yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元', '\u00a5', '\uffe5']
-            euro_symbols = ['€', 'EUR', '\u20ac']
-            
-            # Hücre içinde net karakter araması
+            # Hücre metninde açıkça var mı kontrol et
             if any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
                 currency = 'CNY'
             elif any(sym in val_str for sym in euro_symbols) or any(sym in val_str.upper() for sym in euro_symbols):
                 currency = 'EUR'
             
-            # Sayısal dönüşüm için tüm sembolleri temizle
+            # Sembolleri temizle
             for clean_target in yuan_symbols + euro_symbols + ['$', 'usd', 'USD']:
                 val_str = val_str.replace(clean_target, '')
             val_str = val_str.strip()
@@ -98,20 +98,20 @@ def clean_data(df, rates):
             except:
                 numeric_price = 0.0
                 
-            # Kur dönüşümü (Sadece ilgili sembol yakalanmışsa tetiklenir)
+            # Kur dönüşümü
             if currency == 'CNY':
                 return numeric_price * rates["CNY_TO_USD"]
             elif currency == 'EUR':
                 return numeric_price * rates["EUR_TO_USD"]
             
-            return numeric_price  # Sembol yoksa veya $ ise doğrudan kendisini döndürür
+            return numeric_price
 
         df['FIYAT'] = df['FIYAT'].apply(parse_price_to_usd)
     
     # Güvenli Sermaye Hesaplaması
     df['TOPLAM_SERMAYE'] = df['ADET'] * df['FIYAT']
     
-    # Metinsel Alan Sabitleme ve Karışık Tip Temizliği (TypeError Engelleme)
+    # Metinsel Alan Sabitleme ve Karışık Tip Temizliği
     for text_col in ['FIRMA', 'TUR', 'MALIN CINSI', 'BARKOD']:
         if text_col in df.columns:
             df[text_col] = df[text_col].fillna("BELİRTİLMEMİŞ").astype(str).str.strip()
@@ -119,7 +119,7 @@ def clean_data(df, rates):
             
     return df
 
-# --- VERİ TOPLAMA VE BİRLEŞTİRME ---
+# --- VERİ TOPLAMA VE BİRLEŞTİRME (MASKE OKUYUCU MOTOR) ---
 @st.cache_data(ttl=600)
 def get_all_data(rates):
     all_data_list = []
@@ -127,10 +127,56 @@ def get_all_data(rates):
     
     for link in LINKS:
         try:
-            xl = pd.ExcelFile(link)
+            response = requests.get(link, timeout=10)
+            if response.status_code != 200:
+                continue
+            
+            # Dosyayı açıkça biçim maskelerini okuyabilmek için openpyxl ile hafızaya alıyoruz
+            wb = openpyxl.load_workbook(io.BytesIO(response.content), data_only=True)
+            
             for tab in TARGET_TABS:
-                if tab in xl.sheet_names:
-                    df = pd.read_excel(xl, sheet_name=tab)
+                if tab in wb.sheetnames:
+                    sheet = wb[tab]
+                    rows = list(sheet.iter_rows(values_only=False))
+                    if not rows:
+                        continue
+                    
+                    # Başlıkları çek
+                    headers = [str(cell.value).strip() if cell.value is not None else '' for cell in rows[0]]
+                    
+                    try:
+                        fiyat_idx = headers.index('FIYAT')
+                    except ValueError:
+                        fiyat_idx = -1
+                        
+                    data = []
+                    for row in rows[1:]:
+                        if all(cell.value is None for cell in row):
+                            continue
+                            
+                        row_data = []
+                        for idx, cell in enumerate(row):
+                            if idx >= len(headers): 
+                                break
+                            val = cell.value
+                            
+                            # İŞTE BURASI: Hücrenin arkasındaki gizli biçimlendirme maskesini yakalıyoruz!
+                            if idx == fiyat_idx and val is not None:
+                                fmt = str(cell.number_format).upper()
+                                # Eğer Excel biçim maskesinde Yuan sembol kodları varsa değerin başına '¥' ekle
+                                if any(x in fmt for x in ['¥', '￥', 'CNY', '元']):
+                                    val = f"¥{val}"
+                                elif any(x in fmt for x in ['€', 'EUR']):
+                                    val = f"€{val}"
+                                    
+                            row_data.append(val)
+                            
+                        while len(row_data) < len(headers):
+                            row_data.append(None)
+                            
+                        data.append(row_data)
+                        
+                    df = pd.DataFrame(data, columns=headers)
                     df_clean = clean_data(df, rates)
                     if not df_clean.empty:
                         pool[tab].append(df_clean)
@@ -213,7 +259,6 @@ elif page == "2. Firma Bazlı Analiz":
     if df_dashboard.empty:
         st.error("Veri bulunamadı.")
     else:
-        # Metne sabitlenmiş listeyle güvenli sıralama
         firmalar = sorted([str(f) for f in df_dashboard['FIRMA'].unique() if str(f) != "BELİRTİLMEMİŞ"])
         
         if not firmalar:
