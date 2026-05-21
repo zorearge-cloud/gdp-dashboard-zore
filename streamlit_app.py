@@ -21,6 +21,14 @@ LINKS = [
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
 EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', 'ADET', 'FIYAT', 'YUKLEME_TARIHI', 'NAKLİYE_TÜRÜ']
 
+# Çoklu Excel dosyalarında kolon kaymalarını sıfırlayan akıllı haritalama sözlüğü
+HEADER_MAP = {
+    'SIPARIS TARIHI': 'SIPARIS_TARIHI', 'SIPARIS_TARIHI': 'SIPARIS_TARIHI',
+    'FIRMA': 'FIRMA', 'TUR': 'TUR', 'BARKOD': 'BARKOD',
+    'MALIN CINSI': 'MALIN CINSI', 'ADET': 'ADET', 'FIYAT': 'FIYAT',
+    'YUKLEME TARIHI': 'YUKLEME_TARIHI', 'YUKLEME_TARIHI': 'YUKLEME_TARIHI'
+}
+
 # --- CANLI DÖVİZ KURU MOTORU ---
 @st.cache_data(ttl=3600)
 def get_live_rates():
@@ -45,9 +53,10 @@ rates = get_live_rates()
 def clean_data(df, rates):
     df = df.loc[:, ~df.columns.duplicated()]
     
+    # Gün ve ay formatının kaymasını önlemek için dayfirst=True zorunlu kılındı
     for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
+            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce').dt.date
             
     available_cols = [c for c in EXPECTED_COLUMNS if c in df.columns]
     df = df[available_cols].copy()
@@ -56,21 +65,28 @@ def clean_data(df, rates):
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
     
-    if 'FIYAT' in df.columns:
-        def parse_price_to_usd(val):
+    # Çoklu Para Birimi ve Kur Dönüşüm Yönetimi
+    if 'FIYAT' in df.columns and 'FIRMA' in df.columns:
+        def parse_price_details(row):
+            val = row['FIYAT']
+            firma_name = str(row['FIRMA']).upper()
             if pd.isna(val):
-                return 0.0
+                return 0.0, 0.0, '$'
             
             val_str = str(val).strip()
             currency = 'USD'
+            sym_char = '$'
             
             yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元']
             euro_symbols = ['€', 'EUR']
             
-            if any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
+            # Firma kontrolü veya hücre formatı bazlı akıllı tespit
+            if 'CATHY' in firma_name or any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
                 currency = 'CNY'
+                sym_char = '¥'
             elif any(sym in val_str for sym in euro_symbols) or any(sym in val_str.upper() for sym in euro_symbols):
                 currency = 'EUR'
+                sym_char = '€'
             
             for clean_target in yuan_symbols + euro_symbols + ['$', 'usd', 'USD']:
                 val_str = val_str.replace(clean_target, '')
@@ -90,13 +106,21 @@ def clean_data(df, rates):
                 numeric_price = 0.0
                 
             if currency == 'CNY':
-                return numeric_price * rates["CNY_TO_USD"]
+                usd_price = numeric_price * rates["CNY_TO_USD"]
             elif currency == 'EUR':
-                return numeric_price * rates["EUR_TO_USD"]
-            
-            return numeric_price
+                usd_price = numeric_price * rates["EUR_TO_USD"]
+            else:
+                usd_price = numeric_price
+                
+            return usd_price, numeric_price, sym_char
 
-        df['FIYAT'] = df['FIYAT'].apply(parse_price_to_usd)
+        res = df.apply(parse_price_details, axis=1)
+        df['FIYAT'] = [r[0] for r in res]
+        df['ORIJINAL_FIYAT'] = [r[1] for r in res]
+        df['PARA_BIRIMI'] = [r[2] for r in res]
+    else:
+        df['ORIJINAL_FIYAT'] = df['FIYAT'] if 'FIYAT' in df.columns else 0.0
+        df['PARA_BIRIMI'] = '$'
     
     df['TOPLAM_SERMAYE'] = df['ADET'] * df['FIYAT']
     
@@ -154,7 +178,12 @@ def get_all_data(rates):
                     if not rows:
                         continue
                     
-                    headers = [str(cell.value).strip() if cell.value is not None else '' for cell in rows[0]]
+                    # Kolon adlarını Türkçeden arındırıp standardize eden temizlik motoru
+                    raw_headers = [str(cell.value).strip().upper() if cell.value is not None else '' for cell in rows[0]]
+                    headers = []
+                    for h in raw_headers:
+                        clean_h = h.replace('İ', 'I').replace('Ş', 'S').replace('Ü', 'U').replace('Ç', 'C').replace('Ğ', 'G').replace('_', ' ')
+                        headers.append(HEADER_MAP.get(clean_h, h))
                     
                     try:
                         fiyat_idx = headers.index('FIYAT')
@@ -174,7 +203,7 @@ def get_all_data(rates):
                             
                             if idx == fiyat_idx and val is not None:
                                 fmt = str(cell.number_format).upper()
-                                if any(x in fmt for x in ['¥', '￥', 'CNY', '元']):
+                                if any(x in fmt for x in ['¥', '￥', 'CNY', '元', '804']):
                                     val = f"¥{val}"
                                 elif any(x in fmt for x in ['€', 'EUR']):
                                     val = f"€{val}"
@@ -188,22 +217,15 @@ def get_all_data(rates):
                         
                     df = pd.DataFrame(data, columns=headers)
                     
-                    # Sayfa adına göre Lokasyon (Prefix) ve Nakliye Türünün Birleştirilmesi
                     tab_lower = tab.lower()
                     prefix = ""
-                    if "has" in tab_lower:
-                        prefix = "HAS "
-                    elif "meh" in tab_lower:
-                        prefix = "MEH "
-                    elif "ist" in tab_lower:
-                        prefix = "IST "
+                    if "has" in tab_lower: prefix = "HAS "
+                    elif "meh" in tab_lower: prefix = "MEH "
+                    elif "ist" in tab_lower: prefix = "IST "
                         
-                    if "air" in tab_lower:
-                        df['NAKLİYE_TÜRÜ'] = prefix + "HAVA"
-                    elif "sea" in tab_lower:
-                        df['NAKLİYE_TÜRÜ'] = prefix + "DENİZ"
-                    else:
-                        df['NAKLİYE_TÜRÜ'] = prefix + "BELİRTİLMEMİŞ"
+                    if "air" in tab_lower: df['NAKLİYE_TÜRÜ'] = prefix + "HAVA"
+                    elif "sea" in tab_lower: df['NAKLİYE_TÜRÜ'] = prefix + "DENİZ"
+                    else: df['NAKLİYE_TÜRÜ'] = prefix + "BELİRTİLMEMİŞ"
                         
                     df_clean = clean_data(df, rates)
                     if not df_clean.empty:
@@ -264,8 +286,7 @@ if page == "1. Genel Dashboard":
         fig4.update_traces(textinfo='label+percent')
         g4.plotly_chart(fig4, use_container_width=True)
 
-        df_2026 = df_dashboard[df_dashboard['SIPARIS_AY'].str.startswith('2026', na=False)].copy()
-        df_2026 = df_2026.sort_values('SIPARIS_AY')
+        df_2026 = df_dashboard[df_dashboard['SIPARIS_AY'].str.startswith('2026', na=False)].copy().sort_values('SIPARIS_AY')
 
         g5, g6 = st.columns(2)
         top_5_firmalar = df_2026.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).index
@@ -315,12 +336,8 @@ elif page == "2. Firma Bazlı Analiz":
             
             col_a, col_b = st.columns(2)
             
-            # --- PASTA GRAFİĞİNDE KALABALIK ÖNLEME / "DİĞER" MOTORU ---
             if not firma_df.empty and firma_df['TOPLAM_SERMAYE'].sum() > 0:
-                # Firmanın tüm kategorilerini büyükten küçüğe topluyoruz
                 kategori_ozet = firma_df.groupby('TUR')['TOPLAM_SERMAYE'].sum().reset_index()
-                
-                # Eğer kategorilerin sayısı 6'dan fazlaysa akıllı sıkıştırma yapıyoruz
                 if len(kategori_ozet) > 6:
                     en_buyuk_6 = kategori_ozet.nlargest(6, 'TOPLAM_SERMAYE')['TUR'].tolist()
                     firma_df_pie = firma_df.copy()
@@ -344,17 +361,14 @@ elif page == "2. Firma Bazlı Analiz":
             else:
                 col_b.info("2026 yılına ait zaman trendi grafik verisi bulunamadı.")
             
-            # --- BARKOD SORGULAMA VE CANLI FİLTRELEME MOTORU ---
             st.markdown("---")
             st.subheader(f"🔍 {selected_firma} Sipariş Listesinde Barkod Sorgulama")
             
             search_barcode = st.text_input("Barkod Yazın (Varmı / Yokmu Kontrolü):", placeholder="Kontrol etmek istediğiniz barkodu buraya girin...").strip()
             
             display_df = firma_df.copy()
-            
             if search_barcode:
                 search_res = display_df[display_df['BARKOD'].str.contains(search_barcode, case=False, na=False)]
-                
                 if not search_res.empty:
                     st.success(f"✅ Barkod Bulundu! Bu firmaya ait listede aradığınız barkod ile eşleşen {len(search_res)} adet kayıt var.")
                     display_df = search_res  
@@ -363,9 +377,16 @@ elif page == "2. Firma Bazlı Analiz":
             
             st.markdown(f"**{selected_firma} Veri Listesi:**")
             display_df_formatted = display_df.copy()
-            display_df_formatted['FIYAT'] = display_df_formatted['FIYAT'].map('{:,.2f} $'.format)
+            
+            # BLANKET YERİNE AKILLI SATIR BAZLI PARA BİRİMİ BASTIRMA MOTORU
+            display_df_formatted['FIYAT'] = display_df.apply(lambda r: f"{r['ORIJINAL_FIYAT']:,.2f} {r['PARA_BIRIMI']}" if 'ORIJINAL_FIYAT' in r else f"{r['FIYAT']:,.2f} $", axis=1)
             display_df_formatted['TOPLAM_SERMAYE'] = display_df_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
             
+            # Orijinal ara takip sütunlarını son tabloda kalabalık yapmasın diye gizleyelim
+            drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in display_df_formatted.columns]
+            if drop_cols:
+                display_df_formatted = display_df_formatted.drop(columns=drop_cols)
+                
             st.dataframe(display_df_formatted.sort_values(by='SIPARIS_TARIHI', ascending=False), use_container_width=True, hide_index=True)
 
 # --- SAYFA 3: HAM VERİ ---
@@ -377,13 +398,16 @@ elif page == "3. Ham Veri":
             tab_name = TARGET_TABS[i]
             df_list = data_pool[tab_name]
             if df_list:
-                combined_df = pd.concat(df_list, ignore_index=True)
-                combined_df = combined_df.drop_duplicates()
+                combined_df = pd.concat(df_list, ignore_index=True).drop_duplicates()
                 
                 raw_display = combined_df.copy()
-                raw_display['FIYAT'] = raw_display['FIYAT'].map('{:,.2f} $'.format)
+                raw_display['FIYAT'] = combined_df.apply(lambda r: f"{r['ORIJINAL_FIYAT']:,.2f} {r['PARA_BIRIMI']}" if 'ORIJINAL_FIYAT' in r else f"{r['FIYAT']:,.2f} $", axis=1)
                 raw_display['TOPLAM_SERMAYE'] = raw_display['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
                 
+                drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in raw_display.columns]
+                if drop_cols:
+                    raw_display = raw_display.drop(columns=drop_cols)
+                    
                 st.dataframe(raw_display, use_container_width=True, hide_index=True)
             else:
                 st.warning(f"Bu sekme ({tab_name}) için veri bulunamadı.")
