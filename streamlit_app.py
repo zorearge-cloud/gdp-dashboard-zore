@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(layout="wide")
-st.title("ZORE VERİ TESPİT PANELİ (DEBUG MODE)")
+st.title("ZORE MERKEZİ VERİ HAVUZU (AKILLI MOD)")
 
 links = [
     "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=xlsx",
@@ -14,22 +14,32 @@ links = [
 
 target_tabs = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
 
-st.write("---")
-st.subheader("SİSTEMİN GÖRDÜĞÜ SEKME İSİMLERİ (DEBUG):")
+# Verileri depolamak için bir havuz (Sözlük)
+data_pool = {tab: [] for tab in target_tabs}
 
+# 1. Aşama: Dosyaları tara, sadece var olan sekmeleri al
 for link in links:
-    st.write(f"Link: {link[:40]}...")
     try:
         xl = pd.ExcelFile(link)
-        found_sheets = xl.sheet_names
-        st.success(f"Dosya açıldı. Bulunan sekmeler: {found_sheets}")
-        
-        # Sekmeleri kontrol et
-        for target in target_tabs:
-            if target not in found_sheets:
-                st.warning(f"DİKKAT: '{target}' sekmesi bu dosyada YOK!")
+        for tab in target_tabs:
+            if tab in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=tab)
+                data_pool[tab].append(df)
     except Exception as e:
-        st.error(f"Dosya AÇILAMADI! Hata: {e}")
+        st.error(f"Bir dosya okunamadı: {e}")
 
-st.write("---")
-st.info("Eğer yukarıda 'Yok' yazısını görüyorsan, Google Sheets içindeki sekme isminin yazılışı kodunkiyle birebir aynı değildir (bir boşluk bile fark eder).")
+# 2. Aşama: Arayüzü oluştur
+tabs = st.tabs(target_tabs)
+
+for i, tab_ui in enumerate(tabs):
+    with tab_ui:
+        tab_name = target_tabs[i]
+        df_list = data_pool[tab_name]
+        
+        if df_list:
+            # Tüm dosyalardan gelen veriyi alt alta birleştir
+            combined_df = pd.concat(df_list, ignore_index=True)
+            st.write(f"Toplam {len(combined_df)} satır veri bulundu.")
+            st.dataframe(combined_df, use_container_width=True)
+        else:
+            st.warning(f"Bu sekme ({tab_name}) hiçbir dosyada bulunamadı.")
