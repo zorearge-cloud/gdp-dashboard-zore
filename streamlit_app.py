@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 # 1. ÇALIŞAN GERÇEK RESİM LİNKİ (Sonu .png ile biten doğrudan resim kaynağı)
-LOGO_URL = "https://www.zoreaksesuar.com/images/logos/zore-logo.png"
+LOGO_URL = "https://images.seeklogo.com/logo-png/61/1/zore-logo-png_seeklogo-615897.png"
 
 # Sayfa Yapısı ve Mobil Uygulama Ayarları
 st.set_page_config(
