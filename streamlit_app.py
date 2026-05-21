@@ -3,40 +3,52 @@ import pandas as pd
 
 st.set_page_config(layout="wide")
 
-URLS = [
-    "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=csv",
-    "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=csv",
-    "https://docs.google.com/spreadsheets/d/1S1kTptWUEf705cBLw9P9mL6rrqbVjbcp1xk_hgQ-Ny0/export?format=csv",
-    "https://docs.google.com/spreadsheets/d/1VKb6za4Fse5XrGawPG6qvrQZuFhDRGaAysmADGIC7Wc/export?format=csv",
-    "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
-]
+# Linklerini bu sözlüğe doğru şekilde yerleştir
+data_sources = {
+    "HAS": {"SEA": "URL_HAS_SEA", "AIR": "URL_HAS_AIR"},
+    "IST": {"SEA": "URL_IST_SEA", "AIR": "URL_IST_AIR"},
+    "MEH": {"SEA": "URL_MEH_SEA", "AIR": "URL_MEH_AIR"}
+}
 
 @st.cache_data
-def get_data():
-    all_dfs = []
-    for url in URLS:
-        try:
-            # Sütunlara dokunmuyoruz
-            df = pd.read_csv(url)
-            all_dfs.append(df)
-        except Exception as e:
-            continue
-    
-    # Hepsi birleştiriliyor
-    master_df = pd.concat(all_dfs, ignore_index=True)
-    
-    # Tarihe göre sıralama yapmak için geçici format düzeltme
-    # (Hatalı tarih formatı olursa diye errors='coerce' ekledim, çökme yaşanmasın diye)
-    master_df['SIPARIS_TARIHI'] = pd.to_datetime(master_df['SIPARIS_TARIHI'], dayfirst=True, errors='coerce')
-    
-    # Tarihe göre sırala (Eskiden yeniye)
-    master_df = master_df.sort_values(by='SIPARIS_TARIHI', ascending=True)
-    
-    return master_df
+def load_clean_data(url):
+    try:
+        df = pd.read_csv(url)
+        # Sütun isimlerini düzelt
+        df.columns = df.columns.str.strip()
+        
+        # Tarih formatı: Saati at, sadece tarih kalsın
+        if 'SIPARIS_TARIHI' in df.columns:
+            df['SIPARIS_TARIHI'] = pd.to_datetime(df['SIPARIS_TARIHI'], errors='coerce').dt.date
+            
+        # Sayısal değerleri temizle (None veya boşluk varsa 0 yap)
+        for col in ['ADET', 'FIYAT']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0)
+        return df
+    except:
+        return pd.DataFrame()
 
-# Veriyi çek
-df = get_data()
+# ARAYÜZ
+st.title("ZORE MASTER DATA CONTROL CENTER")
 
-# Ekrana bas
-st.title("Master Veri Tablosu")
-st.dataframe(df, use_container_width=True, height=800)
+# Ana sekmeler (HAS, IST, MEH)
+main_tabs = st.tabs(list(data_sources.keys()))
+
+for i, main_tab_name in enumerate(data_sources.keys()):
+    with main_tabs[i]:
+        # Alt kırılım (SEA, AIR)
+        sub_tabs = st.tabs(list(data_sources[main_tab_name].keys()))
+        
+        for j, sub_tab_name in enumerate(data_sources[main_tab_name].keys()):
+            with sub_tabs[j]:
+                url = data_sources[main_tab_name][sub_tab_name]
+                
+                # Veriyi çek ve göster
+                df = load_clean_data(url)
+                
+                if not df.empty:
+                    # Index'i gizle, temiz tabloyu bas
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"{main_tab_name} - {sub_tab_name} verisi yüklenemedi veya boş.")
