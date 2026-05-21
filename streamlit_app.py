@@ -2,93 +2,87 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# 1. Sayfa Ayarları
-st.set_page_config(page_title="ZORE PANEL", layout="wide", initial_sidebar_state="collapsed")
+# Sayfa Ayarları
+st.set_page_config(page_title="ZORE PRO PANEL", layout="wide", initial_sidebar_state="expanded")
 
-# 2. Veri Yükleme ve Temizleme
-@st.cache_data
+# CSS - Tasarım
+st.markdown("""
+    <style>
+    div.stMetric { background-color: #1e293b; padding: 15px; border-radius: 10px; }
+    </style>
+""", unsafe_allow_html=True)
+
+# Veri Yükleme
+@st.cache_data(ttl=600)
 def load_data():
     url = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
     df = pd.read_csv(url)
-    df.columns = df.columns.str.strip() # Boşlukları temizle
-    
-    # Sayısal alanları düzenle
+    df.columns = df.columns.str.strip()
     df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
     df['FIYAT_NUM'] = df['FIYAT'].astype(str).str.replace('¥', '', regex=False).str.replace(',', '.', regex=False)
     df['FIYAT_NUM'] = pd.to_numeric(df['FIYAT_NUM'], errors='coerce').fillna(0)
     df['TUTAR'] = df['ADET'] * df['FIYAT_NUM']
     return df
 
-df = load_data()
+try:
+    df = load_data()
+except:
+    st.error("Veri yükleme hatası!")
+    st.stop()
 
-# 3. Durum Yönetimi (Sayfalar arası geçiş için)
-if 'page' not in st.session_state:
-    st.session_state.page = 'main'
-if 'selected_company' not in st.session_state:
-    st.session_state.selected_company = None
+# Sol Menü
+st.sidebar.title("🔍 ZORE KONTROL")
+page = st.sidebar.radio("Seçenekler", ["Dashboard", "Firma Detay Analizi", "Ham Veri"])
 
-# --- ANA EKRAN FONKSİYONU ---
-def show_main():
-    st.title("📊 ZORE SİPARİŞ KONTROL MERKEZİ")
-    
-    # KPI'lar
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Toplam Harcama", f"¥{df['TUTAR'].sum():,.2f}")
+# --- DASHBOARD ---
+if page == "Dashboard":
+    st.title("📈 Genel Özet Paneli")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Toplam Harcama", f"¥{df['TUTAR'].sum():,.0f}")
     c2.metric("Toplam Adet", f"{int(df['ADET'].sum()):,}")
-    c3.metric("Toplam Firma", len(df['FIRMA'].unique()))
+    c3.metric("Aktif Firma", len(df['FIRMA'].unique()))
+    c4.metric("Ürün Çeşidi", len(df['MALIN CINSI'].unique()))
     
     st.markdown("---")
     
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("Firma Bazlı Harcama")
-        fig1 = px.bar(df.groupby('FIRMA')['TUTAR'].sum().reset_index().nlargest(10, 'TUTAR'), 
-                      x='FIRMA', y='TUTAR', template="plotly_dark", color_discrete_sequence=['#3b82f6'])
+        st.subheader("En Büyük 10 Harcama Kalemi")
+        fig1 = px.bar(df.groupby('FIRMA')['TUTAR'].sum().nlargest(10).reset_index(), 
+                      x='TUTAR', y='FIRMA', orientation='h', template="plotly_dark", color='TUTAR')
         st.plotly_chart(fig1, use_container_width=True)
         
     with col2:
-        st.subheader("Ürün Bazlı Adet (İlk 10)")
-        fig2 = px.bar(df.groupby('MALIN CINSI')['ADET'].sum().reset_index().nlargest(10, 'ADET'), 
-                      x='MALIN CINSI', y='ADET', template="plotly_dark", color_discrete_sequence=['#a855f7'])
+        st.subheader("En Çok Harcama Yapılan İlk 10 Ürün")
+        # Grafiği bozan şey tüm veriyi basmaktı, şimdi sadece ilk 10'u basıyoruz.
+        top_products = df.groupby('MALIN CINSI')['TUTAR'].sum().nlargest(10).reset_index()
+        fig2 = px.pie(top_products, values='TUTAR', names='MALIN CINSI', hole=0.4, template="plotly_dark")
         st.plotly_chart(fig2, use_container_width=True)
-    
-    st.subheader("Firmalar (Detay İçin Tıklayın)")
-    # Grid yapısı
-    cols = st.columns(4)
-    for i, company in enumerate(df['FIRMA'].unique()):
-        with cols[i % 4]:
-            if st.button(f"🔍 {company}", key=company):
-                st.session_state.selected_company = company
-                st.session_state.page = 'detail'
-                st.rerun()
 
-# --- DETAY EKRANI FONKSİYONU ---
-def show_detail():
-    company = st.session_state.selected_company
-    if st.button("⬅️ Ana Panele Dön"):
-        st.session_state.page = 'main'
-        st.rerun()
-        
-    st.title(f"🏢 {company} Analiz Profili")
+# --- FİRMA DETAY ---
+elif page == "Firma Detay Analizi":
+    st.title("🏢 Firma Detay Analizi")
+    selected_firm = st.selectbox("Analiz edilecek firmayı seçin:", sorted(df['FIRMA'].unique()))
     
-    # Firma verisi
-    comp_df = df[df['FIRMA'] == company]
+    firm_df = df[df['FIRMA'] == selected_firm]
     
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Firma Harcaması", f"¥{comp_df['TUTAR'].sum():,.2f}")
-    c2.metric("Toplam Sipariş Adet", f"{int(comp_df['ADET'].sum()):,}")
-    c3.metric("Ürün Çeşidi", len(comp_df['MALIN CINSI'].unique()))
+    k1, k2 = st.columns(2)
+    k1.metric("Bu Firmaya Harcama", f"¥{firm_df['TUTAR'].sum():,.0f}")
+    k2.metric("Sipariş Adet", int(firm_df['ADET'].sum()))
     
-    st.subheader("Bu Firmanın En Çok Sipariş Edilen 5 Ürünü")
-    fig = px.bar(comp_df.groupby('MALIN CINSI')['ADET'].sum().nlargest(5).reset_index(), 
-                 x='MALIN CINSI', y='ADET', template="plotly_dark")
-    st.plotly_chart(fig, use_container_width=True)
+    st.markdown("---")
     
-    st.subheader("Sipariş Kalemleri")
-    st.dataframe(comp_df, use_container_width=True)
+    # GRAFİK: Sadece ilk 10 ürün (Yatay Bar Grafiği)
+    st.subheader(f"En Çok Sipariş Edilen İlk 10 Ürün ({selected_firm})")
+    top_firm_products = firm_df.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index()
+    fig_firm = px.bar(top_firm_products, x='ADET', y='MALIN CINSI', orientation='h', template="plotly_dark", color='ADET')
+    st.plotly_chart(fig_firm, use_container_width=True)
+    
+    # Tablo
+    st.subheader("Sipariş Kalemleri (Detaylı Liste)")
+    st.dataframe(firm_df[['MALIN CINSI', 'ADET', 'FIYAT', 'TUTAR']], use_container_width=True)
 
-# 4. Sayfa Yönlendirici
-if st.session_state.page == 'main':
-    show_main()
+# --- HAM VERİ ---
 else:
-    show_detail()
+    st.title("🗄️ Tüm Kayıtlar")
+    st.dataframe(df, use_container_width=True)
