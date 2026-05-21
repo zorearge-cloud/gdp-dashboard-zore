@@ -2,86 +2,67 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# 1. Sayfa Ayarları - En geniş format
-st.set_page_config(page_title="ZORE PRO", layout="wide")
-
-# 2. Modern Tasarım (CSS) - İşte o "profesyonel" görünümün sırrı burada
+# 1. Sayfa ve Stil Ayarları
+st.set_page_config(page_title="ZORE SİPARİŞ", layout="wide")
 st.markdown("""
     <style>
-    /* Arka plan */
-    .stApp { background: #07080a; color: #e0e0e0; }
-    
-    /* Modern Kart Tasarımı (Glassmorphism) */
-    .card {
-        background: rgba(255, 255, 255, 0.03);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 20px;
-        padding: 25px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-    }
-    
-    .card-title { font-size: 14px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
-    .card-value { font-size: 32px; font-weight: 700; color: #fff; }
-    
-    /* Sidebar gizle/özelleştir */
-    section[data-testid="stSidebar"] { background-color: #0d1117; }
+    .stApp { background-color: #0e1117; }
+    .metric-card { background-color: #161b22; padding: 20px; border-radius: 10px; border: 1px solid #30363d; text-align: center; }
+    .metric-title { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; }
+    .metric-val { color: #ffffff; font-size: 1.5rem; font-weight: bold; margin-top: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
-# 3. Veri Temizliği
+# 2. Veri Yükleme ve Temizleme
 @st.cache_data
 def load_data():
     url = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
     df = pd.read_csv(url)
+    
+    # Sütun isimlerini temizle (boşlukları yok et)
     df.columns = df.columns.str.strip()
+    
+    # ADET temizleme
     df['ADET'] = pd.to_numeric(df['ADET'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
+    
+    # FIYAT temizleme
     df['FIYAT_NUM'] = df['FIYAT'].astype(str).str.replace('¥', '').str.replace(',', '.').astype(float)
+    
+    # Hesaplama
     df['TUTAR'] = df['ADET'] * df['FIYAT_NUM']
     return df
 
 try:
     df = load_data()
     
-    # 4. Arayüz
-    st.title("🚀 ZORE CONTROL CENTER")
+    # Başlık
+    st.title("📊 ZORE YÖNETİM PANELİ")
     
     # KPI Kartları
-    cols = st.columns(4)
-    metrics = [("Toplam Harcama", f"¥{df['TUTAR'].sum():,.0f}"), ("Toplam Adet", f"{int(df['ADET'].sum()):,}"), 
-               ("Aktif Firma", len(df['FIRMA'].unique())), ("Verimlilik", "84.2%")]
-    
-    for i, col in enumerate(cols):
-        with col:
-            st.markdown(f"""
-                <div class="card">
-                    <div class="card-title">{metrics[i][0]}</div>
-                    <div class="card-value">{metrics[i][1]}</div>
-                </div>
-            """, unsafe_allow_html=True)
-            
+    col1, col2, col3, col4 = st.columns(4)
+    with col1: st.markdown(f'<div class="metric-card"><div class="metric-title">Toplam Harcama</div><div class="metric-val">¥{df["TUTAR"].sum():,.0f}</div></div>', unsafe_allow_html=True)
+    with col2: st.markdown(f'<div class="metric-card"><div class="metric-title">Toplam Adet</div><div class="metric-val">{int(df["ADET"].sum()):,}</div></div>', unsafe_allow_html=True)
+    with col3: st.markdown(f'<div class="metric-card"><div class="metric-title">Aktif Firma</div><div class="metric-val">{df["FIRMA"].nunique()}</div></div>', unsafe_allow_html=True)
+    with col4: st.markdown(f'<div class="metric-card"><div class="metric-title">Ürün Çeşidi</div><div class="metric-val">{df["MALIN CINSI"].nunique()}</div></div>', unsafe_allow_html=True)
+
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Grafik Alanları
-    col_a, col_b = st.columns([2, 1])
+    # Grafikler
+    c1, c2 = st.columns(2)
     
-    with col_a:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("📊 Firma Performans Dağılımı")
+    with c1:
+        st.subheader("En Büyük 10 Harcama (Firma)")
         fig1 = px.bar(df.groupby('FIRMA')['TUTAR'].sum().nlargest(10).reset_index(), 
-                      x='FIRMA', y='TUTAR', template="plotly_dark", color_discrete_sequence=['#4a9eff'])
-        fig1.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+                      x='TUTAR', y='FIRMA', orientation='h', template="plotly_dark", color_discrete_sequence=['#58a6ff'])
+        fig1.update_layout(yaxis={'categoryorder':'total ascending'})
         st.plotly_chart(fig1, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
         
-    with col_b:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("📦 Kategori Payı")
-        fig2 = px.pie(df.groupby('MALIN CINSI')['ADET'].sum().nlargest(5).reset_index(), 
-                      values='ADET', names='MALIN CINSI', template="plotly_dark", hole=0.7)
-        fig2.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', showlegend=False)
+    with c2:
+        st.subheader("Ürün Kategorisi Dağılımı")
+        fig2 = px.pie(df.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index(), 
+                      values='ADET', names='MALIN CINSI', template="plotly_dark", hole=0.6)
         st.plotly_chart(fig2, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
 except Exception as e:
-    st.error("Veri işleme hatası. Lütfen tablo yapısını kontrol edin.")
+    st.error(f"Veri yüklenirken hata oluştu: {e}")
+    st.write("Sütunların tam isimleri: FIRMA, MALIN CINSI, ADET, FIYAT olmalıdır.")
