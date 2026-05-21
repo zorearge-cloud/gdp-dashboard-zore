@@ -2,118 +2,101 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import re
-from typing import Dict
 
-# ==============================================================================
-# 1. AYARLAR
-# ==============================================================================
+# Sayfa Ayarları
 st.set_page_config(page_title="ZORE GLOBAL ERP", layout="wide")
 
-# Sadece linklerini buraya yapıştırman yeterli. 
-# Artık tarihleri dosya içinden (SIPARIS_TARIHI) otomatik çekecek.
-SOURCE_MAPPING = {
-    "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/edit?gid=0#gid=0": {"ENTITY": "IST", "MODE": "AIR"},
-    "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/edit?gid=0#gid=0": {"ENTITY": "IST", "MODE": "SEA"},
-    "https://docs.google.com/spreadsheets/d/1S1kTptWUEf705cBLw9P9mL6rrqbVjbcp1xk_hgQ-Ny0/edit?gid=0#gid=0": {"ENTITY": "HAS", "MODE": "AIR"},
-    "https://docs.google.com/spreadsheets/d/1VKb6za4Fse5XrGawPG6qvrQZuFhDRGaAysmADGIC7Wc/edit?gid=0#gid=0": {"ENTITY": "HAS", "MODE": "SEA"},
-    "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/edit?gid=0#gid=0": {"ENTITY": "ANA", "MODE": "GENEL"}
-}
+# CSS
+st.markdown("""
+    <style>
+    div.stMetric { background-color: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; }
+    </style>
+""", unsafe_allow_html=True)
 
-# ==============================================================================
-# 2. VERİ MOTORU (ETL)
-# ==============================================================================
+# 1. KUR AYARLARI (Sidebar'dan güncellenebilir)
+st.sidebar.title("💱 Kur Ayarları")
+usd_rate = st.sidebar.number_input("1 USD (Baz Kur)", value=1.0, step=0.1)
+cny_rate = st.sidebar.number_input("1 Yuan (USD Karşılığı)", value=0.14, step=0.01)
+
+# Veri Yükleme
 @st.cache_data(ttl=600)
-def fetch_master_data(sources: Dict):
-    compiled_df = []
-    for url, meta in sources.items():
-        try:
-            export_url = url.replace('/edit?gid=', '/export?format=csv&gid=')
-            df = pd.read_csv(export_url)
-            df.columns = df.columns.str.strip()
-            
-            # Sütunları standartlaştır
-            df['ENTITY'] = meta['ENTITY']
-            df['MODE'] = meta['MODE']
-            
-            # TARİH İŞLEME (SIPARIS_TARIHI'ni gerçek tarihe çevir)
-            df['SIPARIS_TARIHI'] = pd.to_datetime(df['SIPARIS_TARIHI'], dayfirst=True, errors='coerce')
-            df['AY_YIL'] = df['SIPARIS_TARIHI'].dt.to_period('M').astype(str) # Gruplama için
-            
-            # Sayısal ve Fiyat Temizleme
-            df['ADET'] = pd.to_numeric(df['ADET'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
-            
-            def clean_currency(val):
-                clean_str = re.sub(r'[^\d.]', '', str(val).replace(',', '.'))
-                try: return float(clean_str)
-                except: return 0.0
-            
-            df['FIYAT_NUM'] = df['FIYAT'].apply(clean_currency)
-            df['TUTAR'] = df['ADET'] * df['FIYAT_NUM']
-            
-            compiled_df.append(df)
-        except Exception as e:
-            st.warning(f"Bir dosya yüklenemedi: {e}")
-            
-    return pd.concat(compiled_df, ignore_index=True) if compiled_df else pd.DataFrame()
+def load_data():
+    url = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
+    df = pd.read_csv(url)
+    df.columns = df.columns.str.strip()
+    
+    # Kur dönüşüm fonksiyonu
+    def calculate_usd(row):
+        price_str = str(row['FIYAT'])
+        adet = float(row['ADET'])
+        
+        # Sadece rakamları ve noktayı al
+        numeric_val = float(re.sub(r'[^\d.]', '', price_str.replace(',', '.')))
+        
+        # Sembole göre kur belirle
+        if '¥' in price_str:
+            return numeric_val * cny_rate * adet
+        else: # Varsayılan Dolar
+            return numeric_val * usd_rate * adet
 
-# ==============================================================================
-# 3. ANALİZ
-# ==============================================================================
-def render_dashboard(df):
-    st.title("🚀 ZORE MASTER DATA CONTROL CENTER")
+    df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
+    df['TUTAR_USD'] = df.apply(calculate_usd, axis=1) # Dolar bazlı gerçek tutar
     
-    # Sidebar Filtreleme (Ay Seçimi)
-    st.sidebar.header("📊 Filtreleme")
-    all_months = sorted(df['AY_YIL'].dropna().unique(), reverse=True)
-    selected_months = st.sidebar.multiselect("Ay Seçimi", all_months, default=all_months)
+    # Tarih İşleme
+    df['SIPARIS_TARIHI'] = pd.to_datetime(df['SIPARIS_TARIHI'], dayfirst=True, errors='coerce')
+    df['AY'] = df['SIPARIS_TARIHI'].dt.to_period('M').astype(str)
     
-    # Veri Filtreleme
-    filtered_df = df[df['AY_YIL'].isin(selected_months)]
+    return df
+
+try:
+    df = load_data()
+except Exception as e:
+    st.error(f"Veri yükleme hatası: {e}")
+    st.stop()
+
+# Menü
+page = st.sidebar.radio("Seçenekler", ["Dashboard", "Firma Detay Analizi", "Ham Veri"])
+
+# --- DASHBOARD ---
+if page == "Dashboard":
+    st.title("📈 Genel Özet (USD Bazlı)")
     
-    # KPI Satırı
+    # Metrikler (Artık TUTAR_USD üzerinden çalışıyor)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Toplam Ciro", f"¥{filtered_df['TUTAR'].sum():,.0f}")
-    c2.metric("Toplam Adet", f"{int(filtered_df['ADET'].sum()):,}")
-    c3.metric("Firma Sayısı", filtered_df['FIRMA'].nunique())
-    c4.metric("Seçilen Ay Sayısı", len(selected_months))
+    c1.metric("Toplam Harcama (USD)", f"${df['TUTAR_USD'].sum():,.2f}")
+    c2.metric("Toplam Adet", f"{int(df['ADET'].sum()):,}")
+    c3.metric("Aktif Firma", len(df['FIRMA'].unique()))
+    c4.metric("Ürün Çeşidi", len(df['MALIN CINSI'].unique()))
     
     st.markdown("---")
     
-    # Görseller
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("Firma Bazlı Harcama")
-        fig1 = px.bar(filtered_df.groupby('FIRMA')['TUTAR'].sum().nlargest(10).reset_index(), 
-                      x='TUTAR', y='FIRMA', orientation='h', template="plotly_dark", color='TUTAR')
+        st.subheader("En Büyük 10 Harcama (USD)")
+        fig1 = px.bar(df.groupby('FIRMA')['TUTAR_USD'].sum().nlargest(10).reset_index(), 
+                      x='TUTAR_USD', y='FIRMA', orientation='h', template="plotly_dark", color='TUTAR_USD')
         st.plotly_chart(fig1, use_container_width=True)
         
     with col2:
-        st.subheader("Aylık Ciro Trendi")
-        fig2 = px.line(filtered_df.groupby('AY_YIL')['TUTAR'].sum().reset_index(), 
-                       x='AY_YIL', y='TUTAR', markers=True, template="plotly_dark")
+        st.subheader("Aylık Ciro Trendi (USD)")
+        fig2 = px.line(df.groupby('AY')['TUTAR_USD'].sum().reset_index(), 
+                       x='AY', y='TUTAR_USD', markers=True, template="plotly_dark")
         st.plotly_chart(fig2, use_container_width=True)
 
-    # Detay Tablosu
-    st.subheader("İşlem Detayları")
-    st.dataframe(filtered_df, use_container_width=True)
-
-# ==============================================================================
-# 4. MAIN
-# ==============================================================================
-def main():
-    master_df = fetch_master_data(SOURCE_MAPPING)
+# --- FİRMA DETAY ---
+elif page == "Firma Detay Analizi":
+    st.title("🏢 Firma Detay Analizi")
+    selected_firm = st.selectbox("Analiz edilecek firmayı seçin:", sorted(df['FIRMA'].unique()))
     
-    if master_df.empty:
-        st.error("Veri alınamadı. Google Sheets linklerinin erişime açık olduğundan emin olun.")
-        return
-
-    tab1, tab2 = st.tabs(["Dashboard", "Ham Veri Analizi"])
+    firm_df = df[df['FIRMA'] == selected_firm]
     
-    with tab1:
-        render_dashboard(master_df)
-    with tab2:
-        st.header("Veri Envanteri")
-        st.dataframe(master_df, use_container_width=True)
+    k1, k2 = st.columns(2)
+    k1.metric("Bu Firmaya Harcama (USD)", f"${firm_df['TUTAR_USD'].sum():,.2f}")
+    k2.metric("Sipariş Adet", int(firm_df['ADET'].sum()))
+    
+    st.subheader(f"Sipariş Listesi ({selected_firm})")
+    st.dataframe(firm_df[['SIPARIS_TARIHI', 'MALIN CINSI', 'ADET', 'FIYAT', 'TUTAR_USD']], use_container_width=True)
 
-if __name__ == "__main__":
-    main()
+else:
+    st.title("🗄️ Tüm Kayıtlar")
+    st.dataframe(df, use_container_width=True)
