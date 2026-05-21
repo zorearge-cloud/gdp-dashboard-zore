@@ -64,17 +64,23 @@ def clean_data(df, rates):
             if pd.isna(val):
                 return 0.0
             
+            # Hücre içeriğini metne çevirip temizliyoruz
             val_str = str(val).strip()
             
-            # Sadece hücre içinde açıkça karakter kontrolü yapıyoruz
             currency = 'USD'  # Varsayılan değerimiz doğrudan Dolar
-            if '¥' in val_str or 'CNY' in val_str.upper() or 'RMB' in val_str.upper():
+            
+            # Olası tüm Yuan ve Euro sembol varyasyonları (Karakter kodları dahil)
+            yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元', '\u00a5', '\uffe5']
+            euro_symbols = ['€', 'EUR', '\u20ac']
+            
+            # Hücre içinde net karakter araması
+            if any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
                 currency = 'CNY'
-            elif '€' in val_str or 'EUR' in val_str.upper():
+            elif any(sym in val_str for sym in euro_symbols) or any(sym in val_str.upper() for sym in euro_symbols):
                 currency = 'EUR'
             
-            # Sembolleri temizle
-            for clean_target in ['¥', '€', '$', 'CNY', 'EUR', 'USD', 'RMB', 'cny', 'eur', 'usd']:
+            # Sayısal dönüşüm için tüm sembolleri temizle
+            for clean_target in yuan_symbols + euro_symbols + ['$', 'usd', 'USD']:
                 val_str = val_str.replace(clean_target, '')
             val_str = val_str.strip()
             
@@ -92,20 +98,20 @@ def clean_data(df, rates):
             except:
                 numeric_price = 0.0
                 
-            # Kur dönüşümü (Sadece Yuan veya Euro simgesi yakalanmışsa tetiklenir)
+            # Kur dönüşümü (Sadece ilgili sembol yakalanmışsa tetiklenir)
             if currency == 'CNY':
                 return numeric_price * rates["CNY_TO_USD"]
             elif currency == 'EUR':
                 return numeric_price * rates["EUR_TO_USD"]
             
-            return numeric_price  # Eğer simge yoksa veya $ ise doğrudan kendisini döndürür
+            return numeric_price  # Sembol yoksa veya $ ise doğrudan kendisini döndürür
 
         df['FIYAT'] = df['FIYAT'].apply(parse_price_to_usd)
     
     # Güvenli Sermaye Hesaplaması
     df['TOPLAM_SERMAYE'] = df['ADET'] * df['FIYAT']
     
-    # Metinsel Alan Sabitleme Katsayısı
+    # Metinsel Alan Sabitleme ve Karışık Tip Temizliği (TypeError Engelleme)
     for text_col in ['FIRMA', 'TUR', 'MALIN CINSI', 'BARKOD']:
         if text_col in df.columns:
             df[text_col] = df[text_col].fillna("BELİRTİLMEMİŞ").astype(str).str.strip()
@@ -207,6 +213,7 @@ elif page == "2. Firma Bazlı Analiz":
     if df_dashboard.empty:
         st.error("Veri bulunamadı.")
     else:
+        # Metne sabitlenmiş listeyle güvenli sıralama
         firmalar = sorted([str(f) for f in df_dashboard['FIRMA'].unique() if str(f) != "BELİRTİLMEMİŞ"])
         
         if not firmalar:
