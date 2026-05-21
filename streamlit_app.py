@@ -1,87 +1,58 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import json
+import base64
 
+# --- AYARLAR VE LOGO ---
 LOGO_URL = "https://images.seeklogo.com/logo-png/61/1/zore-logo-png_seeklogo-615897.png"
 
 st.set_page_config(
-    page_title="Zore Kontrol", 
+    page_title="Zore Sipariş Kontrol", 
     layout="wide",
     page_icon=LOGO_URL
 )
 
-st.markdown(f"""
-    <link rel="icon" href="{LOGO_URL}">
-    <link rel="apple-touch-icon" href="{LOGO_URL}">
-""", unsafe_allow_html=True)
-)
-
-# Telefonun ana ekrana eklerken logoyu ve ismi hafızaya alması için gereken net ayarlar
+# Manifest oluşturma
 manifest_data = {
-    "short_name": "Zore Kontrol",
-    "name": "Zore Sipariş Kontrol Merkezi",
-    "icons": [
-        {
-            "src": LOGO_URL,
-            "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "any maskable"
-        },
-        {
-            "src": LOGO_URL,
-            "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "any maskable"
-        }
-    ],
-    "start_url": ".",
-    "background_color": "#0d1117",
-    "theme_color": "#0d1117",
+    "short_name": "Zore",
+    "name": "Zore Sipariş Kontrol",
+    "icons": [{"src": LOGO_URL, "sizes": "512x512", "type": "image/png"}],
+    "start_url": "/",
     "display": "standalone",
-    "orientation": "portrait"
+    "background_color": "#0d1117",
+    "theme_color": "#0d1117"
 }
 
-# Manifest verisini güvenli bir şekilde base64 formatına çeviriyoruz
-manifest_string = json.dumps(manifest_data)
-manifest_base64 = base64.b64encode(manifest_string.encode()).decode()
+manifest_str = json.dumps(manifest_data)
+encoded_manifest = base64.b64encode(manifest_str.encode()).decode()
 
-# HTML kafasına (Head) telefonun manifesti ve logoyu zorla okuması için gereken kodlar
+# HTML ve CSS Enjeksiyonu
 st.markdown(f"""
     <head>
-        <title>Zore Kontrol</title>
-        <meta name="apple-mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-        <meta name="apple-mobile-web-app-title" content="Zore Kontrol">
-        <meta name="application-name" content="Zore Kontrol">
-        <meta name="theme-color" content="#0d1117">
+        <link rel="icon" href="{LOGO_URL}">
         <link rel="apple-touch-icon" href="{LOGO_URL}">
-        <link rel="icon" type="image/png" href="{LOGO_URL}">
-        <link rel="manifest" href="data:application/json;base64,{manifest_base64}">
+        <link rel="manifest" href="data:application/json;base64,{encoded_manifest}">
     </head>
-""", unsafe_allow_html=True)
-
-# METRİK KARTLARINI ŞIKLAŞTIRAN CSS TASARIMI
-st.markdown("""
     <style>
-    .metric-card {
+    .metric-card {{
         background-color: #161b22;
         border: 1px solid #30363d;
         border-radius: 10px;
         padding: 15px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        margin-bottom: 10px;
         text-align: center;
-    }
+    }}
     </style>
 """, unsafe_allow_html=True)
 
+# --- UYGULAMA MANTIĞI ---
 st.title("📊 ZORE SİPARİŞ KONTROL MERKEZİ")
 st.write("---")
 
-# 2. GOOGLE SHEETS ENTEGRASYONU
 SHEETS_URL = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
 
-@st.cache_data(ttl=10) # Test aşamasında veriyi 10 saniyede bir hızlıca çeksin
+@st.cache_data(ttl=60)
 def load_data():
     df = pd.read_csv(SHEETS_URL)
     df.columns = df.columns.str.strip()
@@ -90,73 +61,47 @@ def load_data():
 try:
     df = load_data()
 
-    # 3. YAN PANEL FİLTRELERİ (Özelleştirme Gücü)
-    st.sidebar.header("🔍 Filtreleme Paneli")
-    
-    # Firma Filtresi
+    # Yan Panel
+    st.sidebar.header("🔍 Filtreleme")
     firmalar = ["Hepsi"] + list(df['FIRMA'].unique()) if 'FIRMA' in df.columns else ["Hepsi"]
-    secilen_firma = st.sidebar.selectbox("Firma Seçin:", firmalar)
-    
-    # Tür Filtresi
+    secilen_firma = st.sidebar.selectbox("Firma:", firmalar)
     turler = ["Hepsi"] + list(df['TUR'].unique()) if 'TUR' in df.columns else ["Hepsi"]
-    secilen_tur = st.sidebar.selectbox("Taşıma Türü Seçin:", turler)
+    secilen_tur = st.sidebar.selectbox("Tür:", turler)
 
-    # Veriyi Filtreleme Mantığı
     filtered_df = df.copy()
-    if secilen_firma != "Hepsi":
-        filtered_df = filtered_df[filtered_df['FIRMA'] == secilen_firma]
-    if secilen_tur != "Hepsi":
-        filtered_df = filtered_df[filtered_df['TUR'] == secilen_tur]
+    if secilen_firma != "Hepsi": filtered_df = filtered_df[filtered_df['FIRMA'] == secilen_firma]
+    if secilen_tur != "Hepsi": filtered_df = filtered_df[filtered_df['TUR'] == secilen_tur]
 
-    # 4. ÜST TARAF / BÜYÜK NEON RENKLİ METRİK KARTLARI
+    # Metrikler
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.markdown(f'<div class="metric-card"><h3 style="color:#58a6ff;margin:0;font-size:14px;">Toplam Sipariş</h3><h2 style="margin:10px 0 0 0;font-size:24px;color:#f0f6fc;">{len(filtered_df)} Satır</h2></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><h3>Toplam</h3><h2>{len(filtered_df)}</h2></div>', unsafe_allow_html=True)
     with col2:
         toplam_adet = int(filtered_df['ADET'].sum()) if 'ADET' in filtered_df.columns else 0
-        st.markdown(f'<div class="metric-card"><h3 style="color:#34d399;margin:0;font-size:14px;">Toplam Ürün Adeti</h3><h2 style="margin:10px 0 0 0;font-size:24px;color:#34d399;">{toplam_adet:,}</h2></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><h3>Adet</h3><h2>{toplam_adet:,}</h2></div>', unsafe_allow_html=True)
     with col3:
-        tur_counts = filtered_df['TUR'].value_counts() if 'TUR' in filtered_df.columns else {}
-        hava_count = tur_counts.get('HAVA', 0) + tur_counts.get('UÇAK', 0)
-        st.markdown(f'<div class="metric-card"><h3 style="color:#fb923c;margin:0;font-size:14px;">Hava / Uçak Sevkiyat</h3><h2 style="margin:10px 0 0 0;font-size:24px;color:#fb923c;">{hava_count} Kalem</h2></div>', unsafe_allow_html=True)
+        hava = (filtered_df['TUR'].isin(['HAVA', 'UÇAK'])).sum()
+        st.markdown(f'<div class="metric-card"><h3>Hava</h3><h2>{hava}</h2></div>', unsafe_allow_html=True)
     with col4:
-        deniz_count = tur_counts.get('GEMİ', 0) + tur_counts.get('DENİZ', 0)
-        st.markdown(f'<div class="metric-card"><h3 style="color:#c084fc;margin:0;font-size:14px;">Gemi / Deniz Sevkiyat</h3><h2 style="margin:10px 0 0 0;font-size:24px;color:#c084fc;">{deniz_count} Kalem</h2></div>', unsafe_allow_html=True)
+        deniz = (filtered_df['TUR'].isin(['GEMİ', 'DENİZ'])).sum()
+        st.markdown(f'<div class="metric-card"><h3>Deniz</h3><h2>{deniz}</h2></div>', unsafe_allow_html=True)
 
     st.write("---")
 
-    # 5. GRAFİKLER (Özel Renk Paletiyle)
-    left_chart, right_chart = st.columns(2)
+    # Grafikler
+    l, r = st.columns(2)
+    with l:
+        st.subheader("Firma Yoğunluğu")
+        fig1 = px.bar(filtered_df, x='FIRMA', y='ADET', color='TUR', template='plotly_dark')
+        st.plotly_chart(fig1, use_container_width=True)
+    with r:
+        st.subheader("Ürünler")
+        top = filtered_df.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index()
+        fig2 = px.bar(top, x='ADET', y='MALIN CINSI', orientation='h', template='plotly_dark')
+        st.plotly_chart(fig2, use_container_width=True)
 
-    with left_chart:
-        if 'FIRMA' in filtered_df.columns and 'ADET' in filtered_df.columns:
-            st.subheader("📈 Firma Bazlı Yükleme Yoğunluğu")
-            fig1 = px.bar(
-                filtered_df, x='FIRMA', y='ADET', 
-                color='TUR' if 'TUR' in filtered_df.columns else None,
-                template='plotly_dark',
-                barmode='stack',
-                color_discrete_map={'GEMİ': '#c084fc', 'DENİZ': '#60a5fa', 'UÇAK': '#34d399', 'HAVA': '#fb923c'}
-            )
-            fig1.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig1, use_container_width=True)
-
-    with right_chart:
-        if 'MALIN CINSI' in filtered_df.columns and 'ADET' in filtered_df.columns:
-            st.subheader("📦 En Çok Sipariş Edilen Ürün Tipleri (Top 10)")
-            top_products = filtered_df.groupby('MALIN CINSI')['ADET'].sum().reset_index().sort_values(by='ADET', ascending=False).head(10)
-            fig2 = px.bar(
-                top_products, x='ADET', y='MALIN CINSI', 
-                orientation='h', template='plotly_dark',
-                color_discrete_sequence=['#38bdf8']
-            )
-            fig2.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig2, use_container_width=True)
-
-    # 6. ALT KISIM DİNAMİK LİSTE
-    st.write("---")
-    st.subheader("📋 Filtrelenmiş Sipariş Listesi")
+    st.subheader("📋 Liste")
     st.dataframe(filtered_df, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Veri işlenirken hata oluştu: {e}")
+    st.error(f"Hata: {e}")
