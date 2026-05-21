@@ -24,7 +24,7 @@ st.write("---")
 
 # 2. GOOGLE SHEETS ENTEGRASYONU
 # Buraya AppSheet'te bağladığın ana Google Sheets dokümanının CSV export linkini koyuyoruz
-SHEETS_URL = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/edit?gid=0#gid=0"
+SHEETS_URL = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
 
 @st.cache_data(ttl=60) # Veriyi dakikada bir otomatik yeniler
 def load_data():
