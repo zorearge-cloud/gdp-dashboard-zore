@@ -19,7 +19,7 @@ LINKS = [
 ]
 
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
-EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', 'ADET', 'FIYAT', 'YUKLEME_TARIHI']
+EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', 'ADET', 'FIYAT', 'YUKLEME_TARIHI', 'NAKLİYE_TÜRÜ']
 
 # --- CANLI DÖVİZ KURU MOTORU ---
 @st.cache_data(ttl=3600)
@@ -100,16 +100,37 @@ def clean_data(df, rates):
     
     df['TOPLAM_SERMAYE'] = df['ADET'] * df['FIYAT']
     
-    for text_col in ['FIRMA', 'TUR', 'MALIN CINSI', 'BARKOD']:
+    for text_col in ['FIRMA', 'TUR', 'MALIN CINSI', 'BARKOD', 'NAKLİYE_TÜRÜ']:
         if text_col in df.columns:
-            # Temiz metne dönüştürme
-            val_series = df[text_col].fillna("BELİRTİLMEMİŞ").astype(str).str.strip()
-            
-            # BARKOD sütunundaki .0 uzantılarını temizleme kuralı
             if text_col == 'BARKOD':
-                val_series = val_series.apply(lambda x: x[:-2] if x.endswith('.0') else x)
+                def strict_barcode_clean(x):
+                    if pd.isna(x):
+                        return "BELİRTİLMEMİŞ"
+                    if isinstance(x, (int, float)):
+                        try:
+                            if x == int(x):
+                                return str(int(x))
+                            return str(x)
+                        except:
+                            return str(x)
+                    s = str(x).strip()
+                    if s.endswith('.0'):
+                        s = s[:-2]
+                    if '.' in s:
+                        try:
+                            f = float(s)
+                            if f == int(f):
+                                return str(int(f))
+                        except:
+                            pass
+                    if s in ['nan', 'None', '']:
+                        return "BELİRTİLMEMİŞ"
+                    return s
                 
-            df[text_col] = val_series.replace({'nan': 'BELİRTİLMEMİŞ', 'None': 'BELİRTİLMEMİŞ', '': 'BELİRTİLMEMİŞ'})
+                df['BARKOD'] = df['BARKOD'].apply(strict_barcode_clean)
+            else:
+                val_series = df[text_col].fillna("BELİRTİLMEMİŞ").astype(str).str.strip()
+                df[text_col] = val_series.replace({'nan': 'BELİRTİLMEMİŞ', 'None': 'BELİRTİLMEMİŞ', '': 'BELİRTİLMEMİŞ'})
             
     return df
 
@@ -166,6 +187,24 @@ def get_all_data(rates):
                         data.append(row_data)
                         
                     df = pd.DataFrame(data, columns=headers)
+                    
+                    # Sayfa adına göre Lokasyon (Prefix) ve Nakliye Türünün Birleştirilmesi
+                    tab_lower = tab.lower()
+                    prefix = ""
+                    if "has" in tab_lower:
+                        prefix = "HAS "
+                    elif "meh" in tab_lower:
+                        prefix = "MEH "
+                    elif "ist" in tab_lower:
+                        prefix = "IST "
+                        
+                    if "air" in tab_lower:
+                        df['NAKLİYE_TÜRÜ'] = prefix + "HAVA"
+                    elif "sea" in tab_lower:
+                        df['NAKLİYE_TÜRÜ'] = prefix + "DENİZ"
+                    else:
+                        df['NAKLİYE_TÜRÜ'] = prefix + "BELİRTİLMEMİŞ"
+                        
                     df_clean = clean_data(df, rates)
                     if not df_clean.empty:
                         pool[tab].append(df_clean)
@@ -205,7 +244,6 @@ if page == "1. Genel Dashboard":
 
         st.markdown("---")
         
-        # 1 ve 2. Grafik: Dikey Sütun Grafikler
         g1, g2 = st.columns(2)
         top_sips = df_dashboard.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index()
         fig1 = px.bar(top_sips, x='MALIN CINSI', y='ADET', title="1. En Çok Sipariş Edilen 10 Ürün (Adet)", color='ADET')
@@ -215,7 +253,6 @@ if page == "1. Genel Dashboard":
         fig2 = px.bar(top_money, x='MALIN CINSI', y='TOPLAM_SERMAYE', title="2. En Çok Sermaye Yatırılan 10 Ürün ($)", color='TOPLAM_SERMAYE')
         g2.plotly_chart(fig2, use_container_width=True)
 
-        # 3. ve 4. Grafik: Donut Grafikler (Firma ve Tür İsmi + Yüzde yan yana)
         g3, g4 = st.columns(2)
         top_firma = df_dashboard.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
         fig3 = px.pie(top_firma, values='TOPLAM_SERMAYE', names='FIRMA', title="3. Harcama Yapılan İlk 10 Firma", hole=0.4)
@@ -227,20 +264,16 @@ if page == "1. Genel Dashboard":
         fig4.update_traces(textinfo='label+percent')
         g4.plotly_chart(fig4, use_container_width=True)
 
-        # Zaman bazlı grafikler için 2026 yılı filtresi
         df_2026 = df_dashboard[df_dashboard['SIPARIS_AY'].str.startswith('2026', na=False)].copy()
         df_2026 = df_2026.sort_values('SIPARIS_AY')
 
         g5, g6 = st.columns(2)
-        
-        # 5. Grafik: En Büyük 5 Firmaya Sınırlandırılmış Sade Noktalı Çizgi Grafik
         top_5_firmalar = df_2026.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).index
         df_trend_firma = df_2026[df_2026['FIRMA'].isin(top_5_firmalar)]
         trend_firma = df_trend_firma.groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
         fig5 = px.line(trend_firma, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='FIRMA', title="5. Aylık Firma Harcama Trendi (En Büyük 5 Firma)", markers=True)
         g5.plotly_chart(fig5, use_container_width=True)
         
-        # 6. Grafik: En Büyük 5 Ürün Türüne Sınırlandırılmış Sade Noktalı Çizgi Grafik
         top_5_turler = df_2026.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).index
         df_trend_tur = df_2026[df_2026['TUR'].isin(top_5_turler)]
         trend_tur = df_trend_tur.groupby(['SIPARIS_AY', 'TUR'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
@@ -248,13 +281,10 @@ if page == "1. Genel Dashboard":
         g6.plotly_chart(fig6, use_container_width=True)
 
         g7, g8 = st.columns(2)
-        
-        # 7. Grafik: 2026 yılından başlayan basit toplam çizgi akışı
         trend_total = df_2026.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
         fig7 = px.line(trend_total, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title="7. Aylık Toplam Sermaye Akışı ($)", markers=True)
         g7.plotly_chart(fig7, use_container_width=True)
         
-        # 8. Grafik: Boş ve "BELİRTİLMEMİŞ" barkodlardan arındırılmış, Dikey Sütun Grafik
         df_barkod_temiz = df_dashboard[(df_dashboard['BARKOD'] != "BELİRTİLMEMİŞ") & (df_dashboard['BARKOD'].str.strip() != "")]
         top_barcode = df_barkod_temiz.groupby('BARKOD').agg({'ADET': 'sum', 'MALIN CINSI': 'first'}).nlargest(10, 'ADET').reset_index()
         fig8 = px.bar(top_barcode, x='MALIN CINSI', y='ADET', title="8. Barkod Bazlı Top 10 Ürün (Gerçek Barkodlar)", text='BARKOD', color='ADET')
@@ -285,14 +315,26 @@ elif page == "2. Firma Bazlı Analiz":
             
             col_a, col_b = st.columns(2)
             
+            # --- PASTA GRAFİĞİNDE KALABALIK ÖNLEME / "DİĞER" MOTORU ---
             if not firma_df.empty and firma_df['TOPLAM_SERMAYE'].sum() > 0:
-                fig_a = px.pie(firma_df, values='TOPLAM_SERMAYE', names='TUR', title=f"{selected_firma} Ürün Kategorisi Dağılımı", hole=0.4)
+                # Firmanın tüm kategorilerini büyükten küçüğe topluyoruz
+                kategori_ozet = firma_df.groupby('TUR')['TOPLAM_SERMAYE'].sum().reset_index()
+                
+                # Eğer kategorilerin sayısı 6'dan fazlaysa akıllı sıkıştırma yapıyoruz
+                if len(kategori_ozet) > 6:
+                    en_buyuk_6 = kategori_ozet.nlargest(6, 'TOPLAM_SERMAYE')['TUR'].tolist()
+                    firma_df_pie = firma_df.copy()
+                    firma_df_pie['TUR_GRAFIK'] = firma_df_pie['TUR'].apply(lambda x: x if x in en_buyuk_6 else 'DİĞER')
+                else:
+                    firma_df_pie = firma_df.copy()
+                    firma_df_pie['TUR_GRAFIK'] = firma_df_pie['TUR']
+                
+                fig_a = px.pie(firma_df_pie, values='TOPLAM_SERMAYE', names='TUR_GRAFIK', title=f"{selected_firma} Ürün Kategorisi Dağılımı (İlk 6 + Diğer)", hole=0.4)
                 fig_a.update_traces(textinfo='label+percent')
                 col_a.plotly_chart(fig_a, use_container_width=True)
             else:
                 col_a.info("Grafik için yeterli ciro verisi yok.")
             
-            # Firma trend grafiği de 2026 yılına sabitlendi
             firma_df_2026 = firma_df[firma_df['SIPARIS_AY'].str.startswith('2026', na=False)].copy().sort_values('SIPARIS_AY')
             trend_data = firma_df_2026.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
             
@@ -311,16 +353,14 @@ elif page == "2. Firma Bazlı Analiz":
             display_df = firma_df.copy()
             
             if search_barcode:
-                # Barkod alanında tam veya kısmi eşleşme kontrolü
                 search_res = display_df[display_df['BARKOD'].str.contains(search_barcode, case=False, na=False)]
                 
                 if not search_res.empty:
                     st.success(f"✅ Barkod Bulundu! Bu firmaya ait listede aradığınız barkod ile eşleşen {len(search_res)} adet kayıt var.")
-                    display_df = search_res  # Tabloyu sadece aranan barkoda daraltır
+                    display_df = search_res  
                 else:
                     st.error("❌ Barkod Bulunamadı! Bu firmanın ham veri listesinde yazdığınız barkod mevcut değil.")
             
-            # Tablo gösterimi (Sıralı ve Temizlenmiş formatta)
             st.markdown(f"**{selected_firma} Veri Listesi:**")
             display_df_formatted = display_df.copy()
             display_df_formatted['FIYAT'] = display_df_formatted['FIYAT'].map('{:,.2f} $'.format)
