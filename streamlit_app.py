@@ -19,15 +19,20 @@ TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
 EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', 'ADET', 'FIYAT', 'YUKLEME_TARIHI']
 
 def clean_data(df):
+    # Duplike (aynı isimli) sütunları temizle
     df = df.loc[:, ~df.columns.duplicated()]
+    
+    # Tarihleri düzelt
     for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
+            
+    # WHITELIST YÖNTEMİ: Sadece listedekileri al, gerisini at
     available_cols = [c for c in EXPECTED_COLUMNS if c in df.columns]
     df = df[available_cols]
     df = df.dropna(how='all')
     
-    # Sayısal sütunları zorla (Grafikler için şart)
+    # Sayısal sütunları güvenli hale getir
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
     if 'FIYAT' in df.columns:
@@ -35,10 +40,17 @@ def clean_data(df):
     
     # Toplam Yatırım Sütunu oluştur
     df['TOPLAM_SERMAYE'] = df['ADET'] * df['FIYAT']
+    
+    # HATA ÖNLEYİCİ KATMAN: Metinsel sütunlardaki NaN/Boşluk tiplerini temizle (Sıralama hatalarını engeller)
+    for text_col in ['FIRMA', 'TUR', 'MALIN CINSI', 'BARKOD']:
+        if text_col in df.columns:
+            df[text_col] = df[text_col].fillna("BELİRTİLMEMİŞ").astype(str).str.strip()
+            df[text_col] = df[text_col].replace({'nan': 'BELİRTİLMEMİŞ', 'None': 'BELİRTİLMEMİŞ', '': 'BELİRTİLMEMİŞ'})
+            
     return df
 
 # --- VERİ TOPLAMA VE BİRLEŞTİRME ---
-@st.cache_data(ttl=600) # 10 dakika önbelleğe alarak hızlandırır
+@st.cache_data(ttl=600) # 10 dakika önbellek koruması
 def get_all_data():
     all_data_list = []
     pool = {tab: [] for tab in TARGET_TABS}
@@ -56,10 +68,11 @@ def get_all_data():
         except:
             continue
     
-    # Dashboard için tüm veriyi birleştir
+    # Dashboard verisini güvenle birleştir
     full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
     if not full_df.empty:
-        full_df['SIPARIS_AY'] = pd.to_datetime(full_df['SIPARIS_TARIHI']).dt.to_period('M').astype(str)
+        full_df['SIPARIS_AY'] = pd.to_datetime(full_df['SIPARIS_TARIHI'], errors='coerce').dt.to_period('M').astype(str)
+        full_df['SIPARIS_AY'] = full_df['SIPARIS_AY'].replace({'NaT': 'Bilinmeyen Dönem'})
         
     return full_df, pool
 
@@ -143,27 +156,43 @@ elif page == "2. Firma Bazlı Analiz":
     if df_dashboard.empty:
         st.error("Veri bulunamadı.")
     else:
-        selected_firma = st.selectbox("Analiz edilecek firmayı seçin", sorted(df_dashboard['FIRMA'].unique()))
-        firma_df = df_dashboard[df_dashboard['FIRMA'] == selected_firma]
+        # Hata önleyici dinamik firma listesi sıralaması
+        firmalar = sorted([str(f) for f in df_dashboard['FIRMA'].unique() if str(f) != "BELİRTİLMEMİŞ"])
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric(f"{selected_firma} Toplam Alım", f"{int(firma_df['ADET'].sum()):,}")
-        c2.metric(f"{selected_firma} Toplam Ciro", f"{firma_df['TOPLAM_SERMAYE'].sum():,.2f} $")
-        c3.metric("En Çok Aldığı Tür", firma_df.groupby('TUR')['ADET'].sum().idxmax())
-        
-        col_a, col_b = st.columns(2)
-        
-        # Firmanın Ürün Dağılımı
-        fig_a = px.pie(firma_df, values='TOPLAM_SERMAYE', names='TUR', title=f"{selected_firma} Ürün Kategorisi Dağılımı")
-        col_a.plotly_chart(fig_a, use_container_width=True)
-        
-        # Firmanın Zaman İçindeki Alımları
-        fig_b = px.bar(firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index(), 
-                       x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Aylık Alım Trendi")
-        col_b.plotly_chart(fig_b, use_container_width=True)
-        
-        st.subheader(f"{selected_firma} Sipariş Geçmişi")
-        st.dataframe(firma_df.sort_values(by='SIPARIS_TARIHI', ascending=False), use_container_width=True, hide_index=True)
+        if not firmalar:
+            st.warning("Analiz edilecek geçerli bir firma kaydı bulunamadı.")
+        else:
+            selected_firma = st.selectbox("Analiz edilecek firmayı seçin", firmalar)
+            firma_df = df_dashboard[df_dashboard['FIRMA'] == selected_firma]
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric(f"{selected_firma} Toplam Alım", f"{int(firma_df['ADET'].sum()):,}")
+            c2.metric(f"{selected_firma} Toplam Ciro", f"{firma_df['TOPLAM_SERMAYE'].sum():,.2f} $")
+            
+            #idxmax() çökmesini önleyici kontrol
+            tur_counts = firma_df.groupby('TUR')['ADET'].sum()
+            en_cok_tur = tur_counts.idxmax() if not tur_counts.empty and tur_counts.sum() > 0 else "Veri Yok"
+            c3.metric("En Çok Aldığı Tür", en_cok_tur)
+            
+            col_a, col_b = st.columns(2)
+            
+            # Firmanın Ürün Dağılımı Grafiği
+            if not firma_df.empty and firma_df['TOPLAM_SERMAYE'].sum() > 0:
+                fig_a = px.pie(firma_df, values='TOPLAM_SERMAYE', names='TUR', title=f"{selected_firma} Ürün Kategorisi Dağılımı")
+                col_a.plotly_chart(fig_a, use_container_width=True)
+            else:
+                col_a.info("Grafik için yeterli ciro verisi yok.")
+            
+            # Firmanın Zaman İçindeki Alımları Grafiği
+            trend_data = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
+            if not trend_data.empty and trend_data['TOPLAM_SERMAYE'].sum() > 0:
+                fig_b = px.bar(trend_data, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Aylık Alım Trendi")
+                col_b.plotly_chart(fig_b, use_container_width=True)
+            else:
+                col_b.info("Zaman trendi grafik verisi bulunamadı.")
+            
+            st.subheader(f"{selected_firma} Sipariş Geçmişi")
+            st.dataframe(firma_df.sort_values(by='SIPARIS_TARIHI', ascending=False), use_container_width=True, hide_index=True)
 
 # --- SAYFA 3: HAM VERİ ---
 elif page == "3. Ham Veri":
