@@ -1,151 +1,90 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+import plotly.express as px
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+# 1. Sayfa Yapısı ve Karanlık Tema Ayarları
+st.set_page_config(page_title="Zore Sipariş Takip Paneli", layout="wide")
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+st.markdown("""
+    <style>
+    .stApp { background-color: #0d1117; color: #f0f6fc; }
+    .metric-card { 
+        background-color: #161b22; 
+        border: 1px solid #30363d; 
+        padding: 22px; 
+        border-radius: 12px; 
+        text-align: center;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    }
+    </style>
+""", unsafe_allow_index=True)
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+st.title("📊 ZORE SİPARİŞ KONTROL MERKEZİ")
+st.write("---")
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+# 2. GOOGLE SHEETS ENTEGRASYONU
+# Buraya AppSheet'te bağladığın ana Google Sheets dokümanının CSV export linkini koyuyoruz
+SHEETS_URL = "https://docs.google.com/spreadsheets/d/1XgX0mN2Gz1_Wc-8gGj997pYqZ_GgO_L9S06I76yC50s/export?format=csv"
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+@st.cache_data(ttl=60) # Veriyi dakikada bir otomatik yeniler
+def load_data():
+    df = pd.read_csv(SHEETS_URL)
+    df.columns = df.columns.str.strip() # Sütun başlarındaki boşlukları temizler
+    return df
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+try:
+    df = load_data()
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+    # 3. Üst Özet Kartları (Metrikler)
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown(f'<div class="metric-card"><h3 style="color:#58a6ff;margin:0;">Toplam Sipariş</h3><h2 style="margin:10px 0 0 0;font-size:32px;">{len(df)} Kalem</h2></div>', unsafe_allow_index=True)
+    with col2:
+        toplam_adet = int(df['ADET'].sum()) if 'ADET' in df.columns else 0
+        st.markdown(f'<div class="metric-card"><h3 style="color:#238636;margin:0;">Toplam Ürün Adeti</h3><h2 style="margin:10px 0 0 0;font-size:32px;">{toplam_adet:,}</h2></div>', unsafe_allow_index=True)
+    with col3:
+        tur_counts = df['TUR'].value_counts() if 'TUR' in df.columns else {}
+        hava_count = tur_counts.get('HAVA', 0) + tur_counts.get('UÇAK', 0)
+        st.markdown(f'<div class="metric-card"><h3 style="color:#f0883b;margin:0;">Hava / Uçak Sevkiyatı</h3><h2 style="margin:10px 0 0 0;font-size:32px;">{hava_count} Hat</h2></div>', unsafe_allow_index=True)
+    with col4:
+        deniz_count = tur_counts.get('GEMİ', 0) + tur_counts.get('DENİZ', 0)
+        st.markdown(f'<div class="metric-card"><h3 style="color:#bc8cf2;margin:0;">Gemi / Deniz Sevkiyatı</h3><h2 style="margin:10px 0 0 0;font-size:32px;">{deniz_count} Hat</h2></div>', unsafe_allow_index=True)
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+    st.write("---")
 
-    return gdp_df
+    # 4. Grafikler (Firma ve Malın Cinsine Göre Yoğunluklar)
+    left_chart, right_chart = st.columns(2)
 
-gdp_df = get_gdp_data()
+    with left_chart:
+        if 'FIRMA' in df.columns and 'ADET' in df.columns:
+            st.subheader("📈 Firma Bazlı Yükleme Hacimleri (Adet)")
+            fig1 = px.bar(
+                df, x='FIRMA', y='ADET', 
+                color='TUR' if 'TUR' in df.columns else None,
+                template='plotly_dark',
+                barmode='stack',
+                color_discrete_map={'GEMİ': '#58a6ff', 'DENİZ': '#58a6ff', 'UÇAK': '#238636', 'HAVA': '#f0883b'}
+            )
+            fig1.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig1, use_container_width=True)
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+    with right_chart:
+        if 'MALIN CINSI' in df.columns and 'ADET' in df.columns:
+            st.subheader("📦 En Çok Sipariş Edilen Ürün Tipleri")
+            top_products = df.groupby('MALIN CINSI')['ADET'].sum().reset_index().sort_values(by='ADET', ascending=False).head(10)
+            fig2 = px.bar(
+                top_products, x='ADET', y='MALIN CINSI', 
+                orientation='h', template='plotly_dark',
+                color_discrete_sequence=['#bc8cf2']
+            )
+            fig2.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig2, use_container_width=True)
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+    # 5. Alt Kısım Detaylı Tablo
+    st.write("---")
+    st.subheader("📋 Tüm Siparişlerin Güncel Listesi")
+    st.dataframe(df, use_container_width=True)
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+except Exception as e:
+    st.error(f"Veri çekilirken hata oluştu: {e}")
+    st.info("Lütfen tablonuzdaki sütun isimlerinin büyük harflerle FIRMA, ADET, TUR, MALIN CINSI olduğunu kontrol edin.")
