@@ -4,122 +4,190 @@ import plotly.express as px
 import plotly.graph_objects as go
 import re
 import numpy as np
+from typing import List, Dict, Union
 
-# --- 1. CONFIG & CSS ---
-st.set_page_config(page_title="ZORE GLOBAL BI PRO", layout="wide", initial_sidebar_state="expanded")
+# ==============================================================================
+# 1. CONFIGURATION & ENTERPRISE THEME
+# ==============================================================================
+st.set_page_config(
+    page_title="ZORE ENTERPRISE BI", 
+    page_icon="📊", 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
 
+# Enterprise CSS injection (Theming)
 st.markdown("""
     <style>
-    .main { background-color: #0b1021; }
-    .stApp { background-color: #0b1021; }
-    .css-1r6slp0 { background-color: #1a2234; }
-    .stMetric { background-color: #1a2234; padding: 20px; border-radius: 10px; border: 1px solid #334155; }
-    h1, h2, h3 { color: #f1f5f9; }
-    .stDataFrame { border: 1px solid #334155; }
+    :root { --primary-color: #3b82f6; --bg-color: #0f172a; --card-bg: #1e293b; }
+    .stApp { background-color: var(--bg-color); color: #f8fafc; }
+    div[data-testid="stMetric"] { background-color: var(--card-bg); padding: 20px; border-radius: 12px; border: 1px solid #334155; }
+    .css-1r6slp0 { background-color: #0f172a; }
+    .chart-container { background-color: var(--card-bg); padding: 20px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 20px; }
+    h1, h2, h3 { color: #ffffff !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. VERİ MOTORU (GELİŞMİŞ) ---
-@st.cache_data(ttl=3600)
-def get_clean_data():
-    url = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
-    try:
-        df = pd.read_csv(url)
-        df.columns = df.columns.str.strip()
+# ==============================================================================
+# 2. DATA ENGINEERING ENGINE
+# ==============================================================================
+class DataProcessor:
+    """Veri işleme, temizleme ve özellik mühendisliği katmanı."""
+    
+    def __init__(self, url: str):
+        self.url = url
+        self.raw_df = None
+        self.clean_df = None
+
+    def load_data(self):
+        try:
+            self.raw_df = pd.read_csv(self.url)
+            self.raw_df.columns = self.raw_df.columns.str.strip()
+            self._preprocess()
+            return True
+        except Exception as e:
+            st.error(f"Veri yükleme başarısız: {e}")
+            return False
+
+    def _preprocess(self):
+        df = self.raw_df.copy()
         
-        # Temizlik: Adet ve Fiyat
+        # Sayısal Temizleme
         df['ADET'] = pd.to_numeric(df['ADET'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
         
-        def parse_currency(val):
-            # '¥1,48' veya '$6.41' gibi değerleri temizle
+        # Para Birimi Temizleme (Regex Logic)
+        def clean_currency(val):
             val = str(val).replace('¥', '').replace('$', '').replace(',', '.')
             val = re.sub(r'[^\d.]', '', val)
             try: return float(val)
             except: return 0.0
-            
-        df['FIYAT_NUM'] = df['FIYAT'].apply(parse_currency)
+        
+        df['FIYAT_NUM'] = df['FIYAT'].apply(clean_currency)
         df['TUTAR'] = df['ADET'] * df['FIYAT_NUM']
         
         # Akıllı Kategorizasyon
-        def categorize(name):
-            name = str(name).lower()
-            if any(x in name for x in ['kapak', 'case', 'kılıf']): return "Kapak & Kılıf"
-            if any(x in name for x in ['glass', 'koruyucu', 'ekran']): return "Ekran Koruyucu"
-            if any(x in name for x in ['şarj', 'adaptör', 'kablo', 'power']): return "Güç & Aksesuar"
-            if any(x in name for x in ['watch', 'kordon']): return "Saat Grubu"
-            if any(x in name for x in ['kulak', 'ses', 'speaker']): return "Ses Sistemleri"
+        def classify(name):
+            n = str(name).lower()
+            if any(x in n for x in ['kapak', 'kılıf', 'case']): return "Kapak & Kılıf"
+            if any(x in n for x in ['glass', 'koruyucu', 'ekran']): return "Ekran Koruyucu"
+            if any(x in n for x in ['şarj', 'adaptör', 'kablo']): return "Şarj & Kablo"
+            if any(x in n for x in ['watch', 'kordon']): return "Saat Grubu"
             return "Diğer"
             
-        df['KATEGORI'] = df['MALIN CINSI'].apply(categorize)
-        return df
-    except Exception as e:
-        st.error(f"Veri yükleme hatası: {e}")
-        return pd.DataFrame()
+        df['KATEGORI'] = df['MALIN CINSI'].apply(classify)
+        self.clean_df = df
 
-# --- 3. DASHBOARD BİLEŞENLERİ ---
-def render_kpi(df):
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric("Toplam Harcama", f"¥{df['TUTAR'].sum():,.0f}")
-    with c2: st.metric("Toplam Adet", f"{int(df['ADET'].sum()):,}")
-    with c3: st.metric("Aktif Firma", df['FIRMA'].nunique())
-    with c4: st.metric("Kategori Çeşitliliği", df['KATEGORI'].nunique())
+    def get_df(self):
+        return self.clean_df
 
-def render_main_charts(df):
-    col1, col2 = st.columns(2)
+# ==============================================================================
+# 3. VISUALIZATION FACTORY
+# ==============================================================================
+class VizFactory:
+    """Grafik oluşturma fonksiyonları (Modüler yapı)."""
     
-    with col1:
-        st.subheader("Firma Bazlı Harcama Analizi")
-        fig1 = px.bar(df.groupby('FIRMA')['TUTAR'].sum().nlargest(10).reset_index(), 
-                      x='TUTAR', y='FIRMA', orientation='h', color='TUTAR', template="plotly_dark")
-        st.plotly_chart(fig1, use_container_width=True)
-        
-    with col2:
-        st.subheader("Kategori Dağılımı (Sunburst)")
-        fig2 = px.sunburst(df, path=['KATEGORI', 'MALIN CINSI'], values='TUTAR', template="plotly_dark")
-        st.plotly_chart(fig2, use_container_width=True)
+    @staticmethod
+    def create_kpi_row(df: pd.DataFrame):
+        cols = st.columns(4)
+        metrics = [
+            ("Toplam Ciro", f"¥{df['TUTAR'].sum():,.0f}"),
+            ("Toplam Adet", f"{int(df['ADET'].sum()):,}"),
+            ("Aktif Firma", df['FIRMA'].nunique()),
+            ("Kategori", df['KATEGORI'].nunique())
+        ]
+        for i, col in enumerate(cols):
+            col.metric(metrics[i][0], metrics[i][1])
 
-# --- 4. SAYFA YAPISI ---
-df = get_clean_data()
-if not df.empty:
-    st.title("🚀 ZORE GLOBAL BI DASHBOARD")
-    tabs = st.tabs(["Dashboard", "Firma Derin Analizi", "Ürün Performans", "Ham Veri"])
+    @staticmethod
+    def render_bar_chart(df: pd.DataFrame, group_col: str, val_col: str, title: str):
+        data = df.groupby(group_col)[val_col].sum().nlargest(10).reset_index()
+        fig = px.bar(data, x=val_col, y=group_col, orientation='h', template="plotly_dark", color=val_col, color_continuous_scale='Blues')
+        fig.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        return fig
+
+# ==============================================================================
+# 4. PAGE HANDLERS (BUSINESS LOGIC)
+# ==============================================================================
+def render_dashboard(df: pd.DataFrame):
+    st.title("📈 Executive Dashboard")
+    VizFactory.create_kpi_row(df)
     
-    with tabs[0]:
-        render_kpi(df)
-        render_main_charts(df)
-        
-    with tabs[1]:
-        st.header("Firma Derin Analizi")
-        selected_firm = st.selectbox("Firma Seçin:", sorted(df['FIRMA'].unique()))
-        firm_df = df[df['FIRMA'] == selected_firm]
-        
-        # Firma içi detay
-        f1, f2 = st.columns([1, 2])
-        with f1:
-            st.metric("Bu Firmaya Harcanan", f"¥{firm_df['TUTAR'].sum():,.0f}")
-            st.metric("Ürün Çeşitliliği", firm_df['MALIN CINSI'].nunique())
-        
-        with f2:
-            fig3 = px.pie(firm_df, values='TUTAR', names='KATEGORI', hole=0.4, title="Kategori Payı")
-            st.plotly_chart(fig3, use_container_width=True)
-            
-        st.subheader("Bu Firmadan En Çok Ne Alındı?")
-        fig4 = px.bar(firm_df.groupby('MALIN CINSI')['TUTAR'].sum().nlargest(10).reset_index(), 
-                      x='TUTAR', y='MALIN CINSI', orientation='h', template="plotly_dark")
-        st.plotly_chart(fig4, use_container_width=True)
-        
-    with tabs[2]:
-        st.header("Ürün Performans Matrisi")
-        # Ürünlerin fiyat ve adet korelasyonu
-        fig5 = px.scatter(df, x='FIYAT_NUM', y='ADET', color='KATEGORI', size='TUTAR', 
-                          hover_data=['MALIN CINSI'], template="plotly_dark", title="Fiyat vs Adet İlişkisi")
-        st.plotly_chart(fig5, use_container_width=True)
-        
-    with tabs[3]:
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("<div class='chart-container'>", unsafe_allow_html=True)
+        st.subheader("En Yüksek Hacimli Firmalar")
+        st.plotly_chart(VizFactory.render_bar_chart(df, 'FIRMA', 'TUTAR', ""), use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    with c2:
+        st.markdown("<div class='chart-container'>", unsafe_allow_html=True)
+        st.subheader("Kategori Dağılımı")
+        fig = px.pie(df, values='TUTAR', names='KATEGORI', hole=0.6, template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+def render_firm_analysis(df: pd.DataFrame):
+    st.title("🏢 Firma Detay Analizi")
+    firm = st.selectbox("Analiz İçin Firma Seçin:", sorted(df['FIRMA'].unique()))
+    
+    subset = df[df['FIRMA'] == firm]
+    
+    # 3'lü Detay
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Firma Toplam Ciro", f"¥{subset['TUTAR'].sum():,.0f}")
+    k2.metric("Toplam Ürün Adedi", int(subset['ADET'].sum()))
+    k3.metric("Favori Kategori", subset.groupby('KATEGORI')['TUTAR'].sum().idxmax())
+    
+    # Detay Tablosu ve Grafik
+    st.subheader(f"{firm} - Ürün Detay Dağılımı")
+    st.dataframe(subset[['MALIN CINSI', 'KATEGORI', 'ADET', 'FIYAT', 'TUTAR']], use_container_width=True)
+    
+    # Derinlemesine Grafik
+    fig = px.sunburst(subset, path=['KATEGORI', 'MALIN CINSI'], values='TUTAR', template="plotly_dark")
+    st.plotly_chart(fig, use_container_width=True)
+
+def render_product_analysis(df: pd.DataFrame):
+    st.title("🔍 Ürün Performans Matrisi")
+    
+    # Scatter plot: Price vs Volume
+    fig = px.scatter(df, x='FIYAT_NUM', y='ADET', color='KATEGORI', size='TUTAR', 
+                     hover_data=['MALIN CINSI'], template="plotly_dark", size_max=60)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Kategori bazlı karşılaştırma
+    st.subheader("Kategori Bazlı Finansal Karşılaştırma")
+    st.bar_chart(df.groupby('KATEGORI')[['TUTAR', 'ADET']].sum())
+
+# ==============================================================================
+# 5. MAIN EXECUTION LOOP
+# ==============================================================================
+def main():
+    # Data Load
+    url = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
+    processor = DataProcessor(url)
+    
+    if not processor.load_data():
+        return
+    
+    df = processor.get_df()
+    
+    # Navigation
+    st.sidebar.title("ZORE CONTROL PANEL")
+    page = st.sidebar.radio("Navigasyon", ["Dashboard", "Firma Derin Analizi", "Ürün Performansı", "Ham Veri"])
+    
+    if page == "Dashboard":
+        render_dashboard(df)
+    elif page == "Firma Derin Analizi":
+        render_firm_analysis(df)
+    elif page == "Ürün Performansı":
+        render_product_analysis(df)
+    else:
+        st.title("🗄️ Veri Envanteri")
         st.dataframe(df, use_container_width=True)
-else:
-    st.warning("Veri bulunamadı veya işlenemedi.")
+        
+    # Footer
+    st.sidebar.markdown("---")
+    st.sidebar.info("Gelişmiş Analitik Modülü V.2.1")
 
-# --- 5. FOOTER ---
-st.markdown("---")
-st.caption("ZORE GLOBAL © 2026 - Gelişmiş Analiz Paneli")
+if __name__ == "__main__":
+    main()
