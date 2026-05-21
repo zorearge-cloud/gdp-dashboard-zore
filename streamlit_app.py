@@ -1,17 +1,19 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import json
-import base64
 
-# 1. ÇALIŞAN GERÇEK RESİM LİNKİ
 LOGO_URL = "https://images.seeklogo.com/logo-png/61/1/zore-logo-png_seeklogo-615897.png"
 
-# Sayfa Yapısı ve Mobil Uygulama Ayarları
 st.set_page_config(
-    page_title="Zore Sipariş Kontrol", 
+    page_title="Zore Kontrol", 
     layout="wide",
     page_icon=LOGO_URL
+)
+
+st.markdown(f"""
+    <link rel="icon" href="{LOGO_URL}">
+    <link rel="apple-touch-icon" href="{LOGO_URL}">
+""", unsafe_allow_html=True)
 )
 
 # Telefonun ana ekrana eklerken logoyu ve ismi hafızaya alması için gereken net ayarlar
