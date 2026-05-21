@@ -4,190 +4,143 @@ import plotly.express as px
 import plotly.graph_objects as go
 import re
 import numpy as np
-from typing import List, Dict, Union
+from typing import Dict
 
 # ==============================================================================
 # 1. CONFIGURATION & ENTERPRISE THEME
 # ==============================================================================
-st.set_page_config(
-    page_title="ZORE ENTERPRISE BI", 
-    page_icon="📊", 
-    layout="wide", 
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="ZORE GLOBAL ERP BI", layout="wide", initial_sidebar_state="expanded")
 
-# Enterprise CSS injection (Theming)
 st.markdown("""
     <style>
-    :root { --primary-color: #3b82f6; --bg-color: #0f172a; --card-bg: #1e293b; }
-    .stApp { background-color: var(--bg-color); color: #f8fafc; }
-    div[data-testid="stMetric"] { background-color: var(--card-bg); padding: 20px; border-radius: 12px; border: 1px solid #334155; }
-    .css-1r6slp0 { background-color: #0f172a; }
-    .chart-container { background-color: var(--card-bg); padding: 20px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 20px; }
-    h1, h2, h3 { color: #ffffff !important; }
+    .stApp { background-color: #0c0f14; color: #e2e8f0; }
+    .css-1r6slp0 { background-color: #1a2234; }
+    .metric-card { background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; }
+    h1, h2, h3 { color: #f8fafc !important; font-weight: 700; }
     </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. DATA ENGINEERING ENGINE
+# 2. MASTER SOURCE CONFIGURATION
 # ==============================================================================
-class DataProcessor:
-    """Veri işleme, temizleme ve özellik mühendisliği katmanı."""
-    
-    def __init__(self, url: str):
-        self.url = url
-        self.raw_df = None
-        self.clean_df = None
+# Buraya eklediğin her link otomatik olarak sisteme dahil olur.
+SOURCE_MAPPING = {
+    "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/edit?gid=0#gid=0": {"ENTITY": "IST", "MODE": "AIR"},
+    "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/edit?gid=0#gid=0": {"ENTITY": "IST", "MODE": "SEA"},
+    "https://docs.google.com/spreadsheets/d/1S1kTptWUEf705cBLw9P9mL6rrqbVjbcp1xk_hgQ-Ny0/edit?gid=0#gid=0": {"ENTITY": "HAS", "MODE": "AIR"},
+    "https://docs.google.com/spreadsheets/d/1VKb6za4Fse5XrGawPG6qvrQZuFhDRGaAysmADGIC7Wc/edit?gid=0#gid=0": {"ENTITY": "HAS", "MODE": "SEA"},
+    # Senin orijinal dosyanı da buraya ekledim:
+    "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/edit?gid=0#gid=0": {"ENTITY": "ANA", "MODE": "GENEL"}
+}
 
-    def load_data(self):
+# ==============================================================================
+# 3. DATA ENGINE (ETL PROCESS)
+# ==============================================================================
+@st.cache_data(ttl=600)
+def fetch_master_data(sources: Dict):
+    compiled_df = []
+    
+    for url, meta in sources.items():
         try:
-            self.raw_df = pd.read_csv(self.url)
-            self.raw_df.columns = self.raw_df.columns.str.strip()
-            self._preprocess()
-            return True
-        except Exception as e:
-            st.error(f"Veri yükleme başarısız: {e}")
-            return False
-
-    def _preprocess(self):
-        df = self.raw_df.copy()
-        
-        # Sayısal Temizleme
-        df['ADET'] = pd.to_numeric(df['ADET'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
-        
-        # Para Birimi Temizleme (Regex Logic)
-        def clean_currency(val):
-            val = str(val).replace('¥', '').replace('$', '').replace(',', '.')
-            val = re.sub(r'[^\d.]', '', val)
-            try: return float(val)
-            except: return 0.0
-        
-        df['FIYAT_NUM'] = df['FIYAT'].apply(clean_currency)
-        df['TUTAR'] = df['ADET'] * df['FIYAT_NUM']
-        
-        # Akıllı Kategorizasyon
-        def classify(name):
-            n = str(name).lower()
-            if any(x in n for x in ['kapak', 'kılıf', 'case']): return "Kapak & Kılıf"
-            if any(x in n for x in ['glass', 'koruyucu', 'ekran']): return "Ekran Koruyucu"
-            if any(x in n for x in ['şarj', 'adaptör', 'kablo']): return "Şarj & Kablo"
-            if any(x in n for x in ['watch', 'kordon']): return "Saat Grubu"
-            return "Diğer"
+            # GSheets export trick
+            export_url = url.replace('/edit?gid=', '/export?format=csv&gid=')
+            df = pd.read_csv(export_url)
+            df.columns = df.columns.str.strip()
             
-        df['KATEGORI'] = df['MALIN CINSI'].apply(classify)
-        self.clean_df = df
-
-    def get_df(self):
-        return self.clean_df
-
-# ==============================================================================
-# 3. VISUALIZATION FACTORY
-# ==============================================================================
-class VizFactory:
-    """Grafik oluşturma fonksiyonları (Modüler yapı)."""
-    
-    @staticmethod
-    def create_kpi_row(df: pd.DataFrame):
-        cols = st.columns(4)
-        metrics = [
-            ("Toplam Ciro", f"¥{df['TUTAR'].sum():,.0f}"),
-            ("Toplam Adet", f"{int(df['ADET'].sum()):,}"),
-            ("Aktif Firma", df['FIRMA'].nunique()),
-            ("Kategori", df['KATEGORI'].nunique())
-        ]
-        for i, col in enumerate(cols):
-            col.metric(metrics[i][0], metrics[i][1])
-
-    @staticmethod
-    def render_bar_chart(df: pd.DataFrame, group_col: str, val_col: str, title: str):
-        data = df.groupby(group_col)[val_col].sum().nlargest(10).reset_index()
-        fig = px.bar(data, x=val_col, y=group_col, orientation='h', template="plotly_dark", color=val_col, color_continuous_scale='Blues')
-        fig.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-        return fig
+            # Metadata injection
+            df['ENTITY'] = meta['ENTITY']
+            df['MODE'] = meta['MODE']
+            
+            # Sanitization
+            df['ADET'] = pd.to_numeric(df['ADET'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
+            
+            def clean_currency(val):
+                val = str(val).replace('¥', '').replace('$', '').replace(',', '.')
+                val = re.sub(r'[^\d.]', '', val)
+                try: return float(val)
+                except: return 0.0
+            
+            df['FIYAT_NUM'] = df['FIYAT'].apply(clean_currency)
+            df['TUTAR'] = df['ADET'] * df['FIYAT_NUM']
+            
+            compiled_df.append(df)
+        except Exception as e:
+            st.error(f"Hata ({meta['ENTITY']}_{meta['MODE']}): {e}")
+            
+    return pd.concat(compiled_df, ignore_index=True) if compiled_df else pd.DataFrame()
 
 # ==============================================================================
-# 4. PAGE HANDLERS (BUSINESS LOGIC)
+# 4. ANALYSIS ENGINE (BI LOGIC)
 # ==============================================================================
-def render_dashboard(df: pd.DataFrame):
-    st.title("📈 Executive Dashboard")
-    VizFactory.create_kpi_row(df)
+def render_detailed_analysis(df, entity, mode):
+    subset = df[(df['ENTITY'] == entity) & (df['MODE'] == mode)]
     
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("<div class='chart-container'>", unsafe_allow_html=True)
-        st.subheader("En Yüksek Hacimli Firmalar")
-        st.plotly_chart(VizFactory.render_bar_chart(df, 'FIRMA', 'TUTAR', ""), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    
-    with c2:
-        st.markdown("<div class='chart-container'>", unsafe_allow_html=True)
-        st.subheader("Kategori Dağılımı")
-        fig = px.pie(df, values='TUTAR', names='KATEGORI', hole=0.6, template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    if subset.empty:
+        st.warning(f"Bu kategoride ({entity}-{mode}) veri yok.")
+        return
 
-def render_firm_analysis(df: pd.DataFrame):
-    st.title("🏢 Firma Detay Analizi")
-    firm = st.selectbox("Analiz İçin Firma Seçin:", sorted(df['FIRMA'].unique()))
+    # KPI ROW
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Toplam Ciro", f"¥{subset['TUTAR'].sum():,.0f}")
+    c2.metric("Toplam Adet", f"{int(subset['ADET'].sum()):,}")
+    c3.metric("Firma Sayısı", subset['FIRMA'].nunique())
+    c4.metric("Ortalama Fiyat", f"¥{subset['FIYAT_NUM'].mean():,.2f}")
     
-    subset = df[df['FIRMA'] == firm]
+    st.markdown("---")
     
-    # 3'lü Detay
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Firma Toplam Ciro", f"¥{subset['TUTAR'].sum():,.0f}")
-    k2.metric("Toplam Ürün Adedi", int(subset['ADET'].sum()))
-    k3.metric("Favori Kategori", subset.groupby('KATEGORI')['TUTAR'].sum().idxmax())
+    # 2x2 GRID
+    row1, row2 = st.columns(2), st.columns(2)
     
-    # Detay Tablosu ve Grafik
-    st.subheader(f"{firm} - Ürün Detay Dağılımı")
-    st.dataframe(subset[['MALIN CINSI', 'KATEGORI', 'ADET', 'FIYAT', 'TUTAR']], use_container_width=True)
-    
-    # Derinlemesine Grafik
-    fig = px.sunburst(subset, path=['KATEGORI', 'MALIN CINSI'], values='TUTAR', template="plotly_dark")
-    st.plotly_chart(fig, use_container_width=True)
+    # Bar Chart: Top Firms
+    with row1[0]:
+        st.subheader("Firma Bazlı Harcama")
+        fig1 = px.bar(subset.groupby('FIRMA')['TUTAR'].sum().nlargest(10).reset_index(), 
+                      x='TUTAR', y='FIRMA', orientation='h', template="plotly_dark", color='TUTAR')
+        st.plotly_chart(fig1, use_container_width=True)
+        
+    # Pie Chart: Product Mix
+    with row1[1]:
+        st.subheader("Ürün Payı")
+        fig2 = px.pie(subset.groupby('MALIN CINSI')['TUTAR'].sum().nlargest(10).reset_index(), 
+                      names='MALIN CINSI', values='TUTAR', hole=0.5, template="plotly_dark")
+        st.plotly_chart(fig2, use_container_width=True)
 
-def render_product_analysis(df: pd.DataFrame):
-    st.title("🔍 Ürün Performans Matrisi")
-    
-    # Scatter plot: Price vs Volume
-    fig = px.scatter(df, x='FIYAT_NUM', y='ADET', color='KATEGORI', size='TUTAR', 
-                     hover_data=['MALIN CINSI'], template="plotly_dark", size_max=60)
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Kategori bazlı karşılaştırma
-    st.subheader("Kategori Bazlı Finansal Karşılaştırma")
-    st.bar_chart(df.groupby('KATEGORI')[['TUTAR', 'ADET']].sum())
+    # Detailed Table
+    st.subheader("Detaylı İşlem Listesi")
+    st.dataframe(subset[['FIRMA', 'MALIN CINSI', 'ADET', 'FIYAT', 'TUTAR']], use_container_width=True, use_container_width=True)
 
 # ==============================================================================
-# 5. MAIN EXECUTION LOOP
+# 5. MAIN APPLICATION
 # ==============================================================================
 def main():
-    # Data Load
-    url = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
-    processor = DataProcessor(url)
+    st.title("🚀 ZORE MASTER DATA CONTROL CENTER")
     
-    if not processor.load_data():
+    # Veri Çekme
+    with st.spinner('Tüm kanallar (IST, HAS, MEH, ANA) senkronize ediliyor...'):
+        master_df = fetch_master_data(SOURCE_MAPPING)
+    
+    if master_df.empty:
+        st.error("Veri alınamadı. Linkleri kontrol et.")
         return
+
+    # DİNAMİK SEKMELER
+    # SOURCE_MAPPING içindeki tüm unique kombinasyonları al ve sekme yap
+    tab_list = ["MASTER_VIEW"]
+    for url, meta in SOURCE_MAPPING.items():
+        tab_list.append(f"{meta['ENTITY']}_{meta['MODE']}")
     
-    df = processor.get_df()
+    tabs = st.tabs(tab_list)
     
-    # Navigation
-    st.sidebar.title("ZORE CONTROL PANEL")
-    page = st.sidebar.radio("Navigasyon", ["Dashboard", "Firma Derin Analizi", "Ürün Performansı", "Ham Veri"])
+    # MASTER VIEW (TÜM VERİ)
+    with tabs[0]:
+        st.header("Genel Master Veri Havuzu")
+        st.metric("Toplam Operasyonel Ciro", f"¥{master_df['TUTAR'].sum():,.0f}")
+        st.dataframe(master_df, use_container_width=True)
     
-    if page == "Dashboard":
-        render_dashboard(df)
-    elif page == "Firma Derin Analizi":
-        render_firm_analysis(df)
-    elif page == "Ürün Performansı":
-        render_product_analysis(df)
-    else:
-        st.title("🗄️ Veri Envanteri")
-        st.dataframe(df, use_container_width=True)
-        
-    # Footer
-    st.sidebar.markdown("---")
-    st.sidebar.info("Gelişmiş Analitik Modülü V.2.1")
+    # KATEGORİK GÖRÜNÜM
+    for i, (url, meta) in enumerate(SOURCE_MAPPING.items()):
+        with tabs[i+1]:
+            render_detailed_analysis(master_df, meta['ENTITY'], meta['MODE'])
 
 if __name__ == "__main__":
     main()
