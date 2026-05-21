@@ -1,70 +1,94 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import re
 
 # 1. Sayfa Ayarları
-st.set_page_config(page_title="ZORE ANALİZ", layout="wide")
+st.set_page_config(page_title="ZORE PANEL", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. Veri Yükleme ve Gelişmiş Temizleme
+# 2. Veri Yükleme ve Temizleme
 @st.cache_data
 def load_data():
     url = "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=csv"
     df = pd.read_csv(url)
+    df.columns = df.columns.str.strip() # Boşlukları temizle
     
-    # Sütun isimlerini temizle (baş ve sondaki boşlukları sil)
-    df.columns = df.columns.str.strip()
-    
-    # ADET temizleme (Sadece sayıları al)
-    df['ADET'] = pd.to_numeric(df['ADET'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
-    
-    # FIYAT temizleme (Sembolleri at, virgülü noktaya çevir)
-    # Bu satır, $6.41 veya ¥1,48 gibi tüm formatları float sayıya çevirir
-    def clean_currency(val):
-        val = str(val).replace('¥', '').replace('$', '').replace(',', '.')
-        # Sadece sayı ve nokta kalsın
-        val = re.sub(r'[^\d.]', '', val)
-        try:
-            return float(val)
-        except:
-            return 0.0
-
-    df['FIYAT_NUM'] = df['FIYAT'].apply(clean_currency)
-    
-    # TUTAR hesaplama
+    # Sayısal alanları düzenle
+    df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
+    df['FIYAT_NUM'] = df['FIYAT'].astype(str).str.replace('¥', '', regex=False).str.replace(',', '.', regex=False)
+    df['FIYAT_NUM'] = pd.to_numeric(df['FIYAT_NUM'], errors='coerce').fillna(0)
     df['TUTAR'] = df['ADET'] * df['FIYAT_NUM']
     return df
 
-# 3. Ana Uygulama
-try:
-    df = load_data()
+df = load_data()
+
+# 3. Durum Yönetimi (Sayfalar arası geçiş için)
+if 'page' not in st.session_state:
+    st.session_state.page = 'main'
+if 'selected_company' not in st.session_state:
+    st.session_state.selected_company = None
+
+# --- ANA EKRAN FONKSİYONU ---
+def show_main():
+    st.title("📊 ZORE SİPARİŞ KONTROL MERKEZİ")
     
-    st.title("🚀 ZORE YÖNETİM PANELİ")
-    
-    # KPI Kartları
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Toplam Harcama", f"¥{df['TUTAR'].sum():,.2f}")
-    col2.metric("Toplam Adet", f"{int(df['ADET'].sum()):,}")
-    col3.metric("Aktif Firma Sayısı", df['FIRMA'].nunique())
-    col4.metric("Ürün Çeşidi", df['MALIN CINSI'].nunique())
+    # KPI'lar
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Toplam Harcama", f"¥{df['TUTAR'].sum():,.2f}")
+    c2.metric("Toplam Adet", f"{int(df['ADET'].sum()):,}")
+    c3.metric("Toplam Firma", len(df['FIRMA'].unique()))
     
     st.markdown("---")
     
-    # Grafiklerin çizimi
-    c1, c2 = st.columns(2)
-    
-    with c1:
+    col1, col2 = st.columns(2)
+    with col1:
         st.subheader("Firma Bazlı Harcama")
-        fig1 = px.bar(df.groupby('FIRMA')['TUTAR'].sum().nlargest(10).reset_index(), 
-                      x='TUTAR', y='FIRMA', orientation='h', template="plotly_dark")
+        fig1 = px.bar(df.groupby('FIRMA')['TUTAR'].sum().reset_index().nlargest(10, 'TUTAR'), 
+                      x='FIRMA', y='TUTAR', template="plotly_dark", color_discrete_sequence=['#3b82f6'])
         st.plotly_chart(fig1, use_container_width=True)
         
-    with c2:
-        st.subheader("En Çok Sipariş Edilen Ürünler (Adet)")
-        fig2 = px.bar(df.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index(), 
-                      x='ADET', y='MALIN CINSI', orientation='h', template="plotly_dark")
+    with col2:
+        st.subheader("Ürün Bazlı Adet (İlk 10)")
+        fig2 = px.bar(df.groupby('MALIN CINSI')['ADET'].sum().reset_index().nlargest(10, 'ADET'), 
+                      x='MALIN CINSI', y='ADET', template="plotly_dark", color_discrete_sequence=['#a855f7'])
         st.plotly_chart(fig2, use_container_width=True)
+    
+    st.subheader("Firmalar (Detay İçin Tıklayın)")
+    # Grid yapısı
+    cols = st.columns(4)
+    for i, company in enumerate(df['FIRMA'].unique()):
+        with cols[i % 4]:
+            if st.button(f"🔍 {company}", key=company):
+                st.session_state.selected_company = company
+                st.session_state.page = 'detail'
+                st.rerun()
 
-except Exception as e:
-    st.error(f"Sistem hatası: {e}")
-    st.write("Lütfen Google Sheets dosyanızda 'FIRMA', 'MALIN CINSI', 'ADET', 'FIYAT' sütunlarının olduğundan emin olun.")
+# --- DETAY EKRANI FONKSİYONU ---
+def show_detail():
+    company = st.session_state.selected_company
+    if st.button("⬅️ Ana Panele Dön"):
+        st.session_state.page = 'main'
+        st.rerun()
+        
+    st.title(f"🏢 {company} Analiz Profili")
+    
+    # Firma verisi
+    comp_df = df[df['FIRMA'] == company]
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Firma Harcaması", f"¥{comp_df['TUTAR'].sum():,.2f}")
+    c2.metric("Toplam Sipariş Adet", f"{int(comp_df['ADET'].sum()):,}")
+    c3.metric("Ürün Çeşidi", len(comp_df['MALIN CINSI'].unique()))
+    
+    st.subheader("Bu Firmanın En Çok Sipariş Edilen 5 Ürünü")
+    fig = px.bar(comp_df.groupby('MALIN CINSI')['ADET'].sum().nlargest(5).reset_index(), 
+                 x='MALIN CINSI', y='ADET', template="plotly_dark")
+    st.plotly_chart(fig, use_container_width=True)
+    
+    st.subheader("Sipariş Kalemleri")
+    st.dataframe(comp_df, use_container_width=True)
+
+# 4. Sayfa Yönlendirici
+if st.session_state.page == 'main':
+    show_main()
+else:
+    show_detail()
