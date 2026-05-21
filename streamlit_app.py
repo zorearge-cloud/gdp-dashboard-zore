@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import requests
 import io
 import openpyxl
-import re
+import datetime
 
 # --- AYARLAR VE ANAYASA ---
 st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
@@ -22,7 +22,6 @@ LINKS = [
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
 EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', 'ADET', 'FIYAT', 'YUKLEME_TARIHI', 'NAKLİYE_TÜRÜ']
 
-# Çoklu Excel dosyalarında kolon kaymalarını sıfırlayan akıllı haritalama sözlüğü
 HEADER_MAP = {
     'SIPARIS TARIHI': 'SIPARIS_TARIHI', 'SIPARIS_TARIHI': 'SIPARIS_TARIHI',
     'FIRMA': 'FIRMA', 'TUR': 'TUR', 'BARKOD': 'BARKOD',
@@ -51,38 +50,46 @@ def get_live_rates():
 
 rates = get_live_rates()
 
-# --- Gelişmiş Tarih Formatı Çözücü (AECOOLY vb. Hataları Engelleyen Motor) ---
-def robust_date_parser(val):
+# --- Kusursuz Tarih Standartlaştırma Motoru (Saatleri siler, format uyuşmazlığını çözer) ---
+def clean_and_format_date(val):
     if pd.isna(val) or val == "":
-        return pd.NaT
-    if isinstance(val, (int, float)):
-        return pd.NaT
-    if hasattr(val, 'date'): # Eğer zaten datetime objesiyse doğrudan döndür
-        return val
-        
-    s = str(val).strip().split()[0] # Saat kısmı varsa temizle
-    s = s.replace('/', '.').replace('-', '.') # Seperatörleri eşitle
+        return "BELİRTİLMEMİŞ"
     
-    # Noktalı formata getirdikten sonra format denemeleri yapıyoruz
+    # Eğer openpyxl doğrudan datetime veya date objesi döndürdüyse
+    if isinstance(val, (datetime.datetime, datetime.date)):
+        return val.strftime('%Y-%m-%d')
+        
+    s = str(val).strip()
+    # Eğer arkasında saat varsa (Örn: "2026-05-12 00:00:00") sadece ilk kısmı al
+    if " " in s:
+        s = s.split()[0]
+        
+    s = s.replace('/', '.').replace('-', '.')
+    
     for fmt in ['%Y.%m.%d', '%d.%m.%Y', '%Y.%d.%m']:
         try:
-            return pd.to_datetime(s, format=fmt).date()
+            dt = datetime.datetime.strptime(s, fmt)
+            return dt.strftime('%Y-%m-%d')
         except:
             continue
             
-    # Eğer özel bir durum varsa pandas'ın kendi insiyatifine bırakıyoruz
+    # Pandas'ın genel çözücüsünü son çare dene
     try:
-        return pd.to_datetime(s, errors='coerce').date()
+        dt = pd.to_datetime(s, errors='coerce')
+        if not pd.isna(dt):
+            return dt.strftime('%Y-%m-%d')
     except:
-        return pd.NaT
+        pass
+        
+    return "BELİRTİLMEMİŞ"
 
 def clean_data(df, rates):
     df = df.loc[:, ~df.columns.duplicated()]
     
-    # Gelişmiş tarih kurtarma motoru devreye alınıyor
+    # Tarihleri metinsel YYYY-MM-DD formatına sabitleyerek saat gelmesini engelliyoruz
     for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
         if col in df.columns:
-            df[col] = df[col].apply(robust_date_parser)
+            df[col] = df[col].apply(clean_and_format_date)
             
     available_cols = [c for c in EXPECTED_COLUMNS if c in df.columns]
     df = df[available_cols].copy()
@@ -91,7 +98,7 @@ def clean_data(df, rates):
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
     
-    # Çoklu Para Birimi ve Kur Dönüşüm Yönetimi
+    # Çoklu Para Birimi Yönetimi
     if 'FIYAT' in df.columns and 'FIRMA' in df.columns:
         def parse_price_details(row):
             val = row['FIYAT']
@@ -260,9 +267,13 @@ def get_all_data(rates):
     
     full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
     if not full_df.empty:
-        full_df['SIPARIS_AY'] = pd.to_datetime(full_df['SIPARIS_TARIHI'], errors='coerce').dt.to_period('M').astype(str)
-        # NaT kalırsa veya boşsa Bilinmeyen Dönem yap mantığı korunuyor fakat robust parser sayesinde veri buraya düşmeyecek
-        full_df['SIPARIS_AY'] = full_df['SIPARIS_AY'].replace({'NaT': 'Bilinmeyen Dönem'})
+        # Metinsel YYYY-MM-DD formatından direkt ilk 7 karakteri keserek Dönemi (YYYY-MM) çıkarıyoruz, NaT hatası sıfırlanıyor
+        def extract_period(dt_str):
+            if dt_str == "BELİRTİLMEMİŞ" or len(dt_str) < 7:
+                return "Bilinmeyen Dönem"
+            return dt_str[:7]
+            
+        full_df['SIPARIS_AY'] = full_df['SIPARIS_TARIHI'].apply(extract_period)
         
     return full_df, pool
 
@@ -377,18 +388,13 @@ elif page == "2. Firma Bazlı Analiz":
             else:
                 col_a.info("Grafik için yeterli ciro verisi yok.")
             
-            # 2026 Yılı Aylık Alım Trendi Grafiği (Hatanın çözüldüğü grafik alanı)
-            firma_df_2026 = firma_df[firma_df['SIPARIS_AY'].str.startswith('2026', na=False)].copy().sort_values('SIPARIS_AY')
-            trend_data = firma_df_2026.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
-            
-            if not trend_data.empty and trend_data['TOPLAM_SERMAYE'].sum() > 0:
-                fig_b = px.bar(trend_data, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Yılı Aylık Alım Trendi ($)", color='TOPLAM_SERMAYE')
+            # Yenilenen trend grafiği
+            trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
+            if not trend_data_all.empty and trend_data_all['TOPLAM_SERMAYE'].sum() > 0:
+                fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE')
                 col_b.plotly_chart(fig_b, use_container_width=True)
             else:
-                # Eğer hâlâ 'Bilinmeyen Dönem' kalırsa onu da grafikte göstererek görünür kılmak için filtresiz hali:
-                trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
-                fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Tüm Dönemler Alım Trendi ($)", color='TOPLAM_SERMAYE')
-                col_b.plotly_chart(fig_b, use_container_width=True)
+                col_b.info("Zaman trendi grafik verisi bulunamadı.")
             
             st.markdown("---")
             st.subheader(f"🔍 {selected_firma} Sipariş Listesinde Barkod Sorgulama")
