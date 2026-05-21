@@ -2,23 +2,27 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# 1. Sayfa Yapısı ve Karanlık Tema Ayarları
-st.set_page_config(page_title="Zore Sipariş Takip Paneli", layout="wide")
+# Zore'nin Aktif Çalışan Gerçek Kurumsal Logosu
+LOGO_URL = "https://seeklogo.com/vector-logo/615897/zore"
 
-# Burası paneli tamamen özelleştiren CSS sihrimiz
-st.markdown("""
-    <style>
-    .stApp { background-color: #0d1117; color: #f0f6fc; }
-    .metric-card { 
-        background-color: #161b22; 
-        border: 1px solid #30363d; 
-        padding: 20px; 
-        border-radius: 12px; 
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-    }
-    .metric-card:hover { border-color: #58a6ff; } /* Fareyle üzerine gelince parlar */
-    </style>
+# 1. Sayfa Yapısı ve Mobil Uygulama Ayarları
+st.set_page_config(
+    page_title="Zore Sipariş Kontrol", 
+    layout="wide",
+    page_icon=LOGO_URL  # Tarayıcı sekmesindeki ikon
+)
+
+# Telefonun ana ekrana eklerken logoyu ve ismi hafızaya alması için gereken net ayarlar
+st.markdown(f"""
+    <head>
+        <title>Zore Kontrol</title>
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <meta name="apple-mobile-web-app-title" content="Zore Kontrol">
+        <meta name="application-name" content="Zore Kontrol">
+        <link rel="apple-touch-icon" href="{LOGO_URL}">
+        <link rel="icon" type="image/png" href="{LOGO_URL}">
+    </head>
 """, unsafe_allow_html=True)
 
 st.title("📊 ZORE SİPARİŞ KONTROL MERKEZİ")
