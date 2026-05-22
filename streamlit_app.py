@@ -12,7 +12,17 @@ import time
 # --- AYARLAR VE SİBER ARKA PLAN ---
 st.set_page_config(layout="wide", page_title="ZORE Uzay Komuta Paneli")
 
-# Veri bağlantıları ve tab yapıları eksiksiz korunuyor
+# Stil ve Görsel Bütünlük İçin CSS Enjeksiyonu
+st.markdown("""
+<style>
+    .reportview-container { background: #0a0e1a; }
+    .stDeployButton { display:none !important; }
+    footer { visibility: hidden; }
+    header { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
+# Veri kaynakları (Eksiksiz Bağlantı Havuzu)
 LINKS = [
     "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=xlsx",
@@ -216,7 +226,6 @@ def apply_cosmic_style(fig, chart_type="bar"):
         template="plotly_dark",
         paper_bgcolor="rgba(10,14,26,1)",
         plot_bgcolor="rgba(15,22,42,1)",
-        transition={'duration': 400, 'easing': 'back-out'}, # Grafik geçiş ivmesi hızlandırıldı (Akan etki için)
         modebar_remove=['zoom', 'pan', 'select', 'lasso2d'],
         font=dict(family="Courier New, monospace", color="#00f3ff", size=12)
     )
@@ -233,7 +242,7 @@ if page == "1. Genel Dashboard":
     st.header("🌌 Galaktik Canlı Veri Terminali")
     
     if df_dashboard.empty:
-        st.error("Veri matrisi boş.")
+        st.error("Veri matrisi yüklenemedi.")
     else:
         # Üst Sabit Metrik Panelleri
         m1, m2, m3 = st.columns(3)
@@ -253,86 +262,96 @@ if page == "1. Genel Dashboard":
         fig2 = px.bar(top_money, x='MALIN CINSI', y='TOPLAM_SERMAYE', title="2. En Ağır Sermaye Yükü Olan 10 Ürün", color_discrete_sequence=['#ff00ff'])
         g2.plotly_chart(apply_cosmic_style(fig2, "bar"), use_container_width=True)
 
+        # --- YAĞ GİBİ AKAN SİNEMATİK DÖNGÜ ALANI ---
         st.markdown("---")
-        st.subheader("🎬 Canlı Sinematik Döngü Koridoru (Otomatik Film Modu)")
+        st.subheader("🎬 Canlı Sinematik Döngü Koridoru (60 FPS Tarayıcı Motoru)")
+        
+        df_anim = df_dashboard[df_dashboard['SIPARIS_AY'].str.startswith('2026', na=False)].copy()
+        aylar = sorted(df_anim['SIPARIS_AY'].unique())
+        top_10_overall = df_dashboard.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).index
+        
+        if not aylar:
+            st.info("Canlı döngü koridoru için 2026 yılı verisi bulunamadı.")
+        else:
+            # SIR 1: YOĞUN MATRİS (DENSE MATRIX) OLUŞTURMA
+            # Her ayda tüm ana firmaların kümülatif durumunu sabit koordinatlara bağlıyoruz.
+            dense_records = []
+            for ay in aylar:
+                df_up_to_month = df_anim[df_anim['SIPARIS_AY'] <= ay]
+                c_sum = df_up_to_month.groupby('FIRMA')['TOPLAM_SERMAYE'].sum()
+                for firma in top_10_overall:
+                    dense_records.append({
+                        'SIPARIS_AY': ay,
+                        'FIRMA': firma,
+                        'TOPLAM_SERMAYE': float(c_sum.get(firma, 0.0))
+                    })
+            df_race_dense = pd.DataFrame(dense_records)
+            max_x = df_race_dense['TOPLAM_SERMAYE'].max()
 
-        # --- 🚀 İŞTE SIRRIMIZ: SİZ HİÇBİR ŞEYE BASMADAN ARKA PLANDA SÜREKLİ DÖNEN FRAGMENT MOTORU ---
-        # run_every=1.0 saniyede bir bu aşağıdaki fonksiyonu tetikler ve grafikleri canlı video gibi oynatır.
-        @st.fragment(run_every=1.0)
-        def render_movie_loop_charts():
-            df_anim = df_dashboard[df_dashboard['SIPARIS_AY'].str.startswith('2026', na=False)].copy()
-            aylar = sorted(df_anim['SIPARIS_AY'].unique())
-            
-            if not aylar:
-                st.info("Canlı döngü için 2026 yılı verisi bulunamadı.")
-                return
-            
-            # Kare (Frame) sayacını session_state üzerinde tutup her saniye bir ileri sarıyoruz
-            if 'loop_frame' not in st.session_state:
-                st.session_state.loop_frame = 0
-                
-            current_idx = st.session_state.loop_frame % len(aylar)
-            aktif_ay = aylar[current_idx]
-            
-            # Bir sonraki saniye için kareyi arttırıyoruz (Sonsuz döngü)
-            st.session_state.loop_frame += 1
-            
-            # Ekrandaki neon zaman göstergesi
-            st.markdown(f"📡 <span style='color:#00f3ff; font-size:18px; font-family:monospace; font-weight:bold;'>CANLI TARAMA DÖNEMİ: {aktif_ay}</span> &nbsp;&nbsp;&nbsp;&nbsp; [ 🟢 SİSTEM SÜREKLİ DÖNGÜDE - FİLM MODU AKTİF ]", unsafe_allow_html=True)
-            
             loop_col1, loop_col2 = st.columns(2)
-            
-            # --- GRAFİK 3: GERÇEK ZAMANLI KUMULATİF AKAN YARIŞ (VİDEO GİBİ SÜREKLİ DEĞİŞİR) ---
-            top_10_overall = df_dashboard.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).index
-            
-            # Seçilen aktif aya kadar olan tüm birikimli verileri filtrele (Barların büyüme animasyonu için)
-            df_filtered_up_to_now = df_anim[df_anim['SIPARIS_AY'] <= aktif_ay]
-            df_race_live = df_filtered_up_to_now.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().reset_index()
-            
-            # İlk 10 firmayı koru ve sıfırları doldur
-            df_race_live = df_race_live[df_race_live['FIRMA'].isin(top_10_overall)]
-            missing_firmas = pd.DataFrame({'FIRMA': [f for f in top_10_overall if f not in df_race_live['FIRMA'].values], 'TOPLAM_SERMAYE': 0.0})
-            df_race_live = pd.concat([df_race_live, missing_firmas], ignore_index=True)
-            
-            # Maksimum X ekseni sınırını kilitle ki barlar titremesin, film gibi aksın
-            max_x = df_anim.groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().unstack(fill_value=0).cumsum(axis=0).max().max()
-            
+
+            # GRAFİK 3: NATIVE CLIENT-SIDE ANIMATED BAR RACE (60 FPS GÜÇ YARIŞI)
             fig3_live = px.bar(
-                df_race_live,
+                df_race_dense,
                 x='TOPLAM_SERMAYE',
                 y='FIRMA',
                 orientation='h',
                 color='FIRMA',
+                animation_frame='SIPARIS_AY',
+                animation_group='FIRMA',
                 range_x=[0, max_x * 1.05],
                 category_orders={'FIRMA': list(top_10_overall)[::-1]},
                 color_discrete_sequence=CYBER_PALETTE,
-                title=f"3. Firmaların Aylık Birikimli Güç Yarışı (Durum: {aktif_ay})"
+                title="3. Firmaların Aylık Birikimli Güç Yarışı (Sinematik Akış)"
             )
-            fig3_live.update_layout(showlegend=False)
+            
+            # SIR 2: INTERPOLATION VE GEÇİŞ AYARLARINI TARAYICIYA GÖMMEK
+            fig3_live.update_layout(
+                showlegend=False,
+                updatemenus=[dict(
+                    type="buttons",
+                    display_active=True,
+                    x=0.0, y=-0.18,
+                    xanchor="left", yanchor="top",
+                    buttons=[
+                        dict(
+                            label="▶ OYNAT",
+                            method="animate",
+                            args=[None, dict(frame=dict(duration=700, redraw=False), fromcurrent=True, transition=dict(duration=500, easing="cubic-in-out"))]
+                        ),
+                        dict(
+                            label="⏸ DURDUR",
+                            method="animate",
+                            args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate", transition=dict(duration=0))]
+                        )
+                    ]
+                )]
+            )
+            
+            if fig3_live.layout.sliders:
+                fig3_live.layout.sliders[0].currentvalue = dict(prefix="Tarama Dönemi: ", font=dict(color="#00f3ff", size=13))
+                fig3_live.layout.sliders[0].font = dict(color="#00f3ff")
+                fig3_live.layout.sliders[0].pad = dict(t=50)
+
             loop_col1.plotly_chart(apply_cosmic_style(fig3_live, "bar"), use_container_width=True)
-            
-            # --- GRAFİK 4: HER SANİYE ŞEKİL DEĞİŞTİREN RADAR DONUT (VİDEO GİBİ MORPH OLUR) ---
-            df_pie_month = df_anim[df_anim['SIPARIS_AY'] == aktif_ay]
-            top_tur_month = df_pie_month.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-            
+
+            # GRAFİK 4: SİBER RADAR GENEL DAĞILIM MATRİSİ
+            top_tur_overall = df_anim.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
             fig4_live = go.Figure(data=[go.Pie(
-                labels=top_tur_month['TUR'] if not top_tur_month.empty else ["VERİ AKIŞI YOK"],
-                values=top_tur_month['TOPLAM_SERMAYE'] if not top_tur_month.empty else [1],
+                labels=top_tur_overall['TUR'],
+                values=top_tur_overall['TOPLAM_SERMAYE'],
                 hole=0.6,
                 marker=dict(colors=CYBER_PALETTE, line=dict(color='#0a0e1a', width=3)),
                 hoverinfo='label+percent+value',
                 textinfo='percent'
             )])
             fig4_live.update_layout(
-                title=f"4. {aktif_ay} Dönemi Tür Dağılım Matrisi",
+                title="4. Toplam Dönem Genel Tür Dağılım Matrisi",
                 annotations=[dict(text='ZORE<br>RADAR', x=0.5, y=0.5, font_size=14, font_color="#00f3ff", showarrow=False)]
             )
             loop_col2.plotly_chart(apply_cosmic_style(fig4_live, "pie"), use_container_width=True)
 
-        # Otomatik döngü alanını çalıştır
-        render_movie_loop_charts()
-
-        # Alt Bölüm Trend Grafikleri (Oval Akıcı Spline Hatlar)
+        # Alt Bölüm Trend Grafikleri
         st.markdown("---")
         df_2026 = df_dashboard[df_dashboard['SIPARIS_AY'].str.startswith('2026', na=False)].copy().sort_values('SIPARIS_AY')
         g5, g6 = st.columns(2)
@@ -362,7 +381,6 @@ if page == "1. Genel Dashboard":
         fig8 = px.bar(top_barcode, x='MALIN CINSI', y='ADET', title="8. Gerçek Barkod Kırılımında Top 10 Lojistik Odak", text='BARKOD', color_discrete_sequence=['#7000ff'])
         g8.plotly_chart(apply_cosmic_style(fig8, "bar"), use_container_width=True)
 
-# Diğer sayfalar (Sayfa 2 ve Sayfa 3 şifreleri korunmuştur)
 elif page == "2. Firma Bazlı Analiz":
     st.header("🏢 Hedef Odak Merkez Laboratuvarı")
     firmalar = sorted([str(f) for f in df_dashboard['FIRMA'].unique() if str(f) != "BELİRTİLMEMİŞ"])
