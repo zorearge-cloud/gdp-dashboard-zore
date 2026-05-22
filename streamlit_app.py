@@ -242,12 +242,6 @@ def get_all_data(rates):
             continue
             
     full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
-    if not full_df.empty:
-        def get_clean_period(x):
-            if x == "BELİRTİLMEMİŞ" or len(x) < 7: return "Bilinmeyen Dönem"
-            return x[:7]
-        full_df['SIPARIS_AY'] = full_df['SIPARIS_TARIHI'].apply(get_clean_period)
-        
     return full_df, pool
 
 df_dashboard, data_pool = get_all_data(rates)
@@ -280,8 +274,10 @@ if page == "1. Siber Dashboard":
         c3.metric("Çalışılan Firma Sayısı", df_dashboard['FIRMA'].nunique())
         st.markdown("---")
         
-        # VERİ HAZIRLIĞI
-        valid_df = df_dashboard[df_dashboard['SIPARIS_AY'] != "Bilinmeyen Dönem"].copy()
+        # VERİ HAZIRLIĞI (Grafik için geçici aylık periyot hesaplaması)
+        df_temp = df_dashboard.copy()
+        df_temp['SIPARIS_AY'] = df_temp['SIPARIS_TARIHI'].apply(lambda x: x[:7] if x != "BELİRTİLMEMİŞ" and len(x) >= 7 else "Bilinmeyen Dönem")
+        valid_df = df_temp[df_temp['SIPARIS_AY'] != "Bilinmeyen Dönem"].copy()
         months_sequence = sorted(valid_df['SIPARIS_AY'].unique().tolist())
         
         if not months_sequence:
@@ -289,7 +285,7 @@ if page == "1. Siber Dashboard":
             
         timeline_matrix = {}
         for month in months_sequence:
-            df_cum = df_dashboard[df_dashboard['SIPARIS_AY'] <= month]
+            df_cum = df_temp[df_temp['SIPARIS_AY'] <= month]
             
             c1_df = df_cum.groupby('MALIN CINSI')['ADET'].sum().nlargest(5).reset_index().iloc[::-1]
             c2_df = df_cum.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index().iloc[::-1]
@@ -480,7 +476,9 @@ elif page == "2. Firma Bazlı Analiz":
             else:
                 col_a.info("Grafik için yeterli veri yok.")
                 
-            trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
+            firma_df_temp = firma_df.copy()
+            firma_df_temp['SIPARIS_AY'] = firma_df_temp['SIPARIS_TARIHI'].apply(lambda x: x[:7] if x != "BELİRTİLMEMİŞ" and len(x) >= 7 else "Bilinmeyen Dönem")
+            trend_data_all = firma_df_temp.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
             if not trend_data_all.empty and trend_data_all['TOPLAM_SERMAYE'].sum() > 0:
                 fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE')
                 fig_b.update_layout(xaxis_type='category')
