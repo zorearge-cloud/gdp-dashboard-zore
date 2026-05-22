@@ -290,18 +290,18 @@ if page == "1. Siber Dashboard":
         for month in months_sequence:
             df_cum = df_temp[df_temp['SIPARIS_AY'] <= month]
             
-            # Yer Değiştiren Grafikler: 1 ve 2 Aşağı (Bar), 3 ve 4 Yukarı (Donut)
+            # 1 ve 2 (Orta Kat - Barlar)
             c1_df = df_cum.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index()
             c2_df = df_cum.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-            c3_df = df_cum.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
-            c4_df = df_cum.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
             
-            # 5. Grafik: 5 Aylık Harcama Trendi (Orijinal veriden son 5 ay)
-            # Not: Kullanıcı verisi yoksa manuel simülasyon yerine mevcut trendi hesaplar
+            # 3 ve 4 (Üst Kat - Donutlar - Orijinal 10'lu ve tüm türler)
+            c3_df = df_cum.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
+            c4_df = df_cum.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(15).reset_index()
+            
+            # 5. Grafik: 5 Aylık Harcama Trendi
             trend_df = valid_df[valid_df['SIPARIS_AY'].isin(display_months)].groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
             
             # 6. Grafik: Nakliye Türü Oranı (Hava vs Deniz)
-            # Nakliye türlerini normalize etme (HAS HAVA -> HAVA)
             valid_df['NORMAL_NAKLIYE'] = valid_df['NAKLİYE_TÜRÜ'].apply(lambda x: 'HAVA' if 'HAVA' in str(x).upper() else 'DENİZ' if 'DENİZ' in str(x).upper() else 'DİĞER')
             shipping_df = valid_df[valid_df['SIPARIS_AY'].isin(display_months)].groupby(['SIPARIS_AY', 'NORMAL_NAKLIYE'])['ADET'].sum().unstack(fill_value=0)
             
@@ -324,22 +324,21 @@ if page == "1. Siber Dashboard":
             <meta charset="utf-8">
             <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
             <style>
-                body { background-color: #03050a; font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 10px; color: #fff; }
+                body { background-color: #10141e; font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 10px; color: #fff; }
                 .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; padding: 10px; }
                 .panel { 
-                    background: rgba(2, 6, 19, 0.9);
-                    border: 2px solid #00f3ff; 
-                    border-radius: 12px; 
-                    box-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+                    background: rgba(16, 20, 30, 0.9);
+                    border: 1px solid rgba(255, 255, 255, 0.1); 
+                    border-radius: 8px; 
                     height: 400px; 
                     padding: 15px;
                 }
-                .header-section { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #00f3ff; padding-bottom: 10px; }
+                .header-section { text-align: center; margin-bottom: 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 10px; }
             </style>
         </head>
         <body>
             <div class="header-section">
-                <h2 style="margin:0; text-shadow: 0 0 10px #00f3ff;">SİBER MATRİS KOMUTA MERKEZİ</h2>
+                <h2 style="margin:0;">SİBER MATRİS KOMUTA MERKEZİ</h2>
             </div>
             <div class="grid-container">
                 <div id="c3" class="panel"></div>
@@ -362,35 +361,42 @@ if page == "1. Siber Dashboard":
                     c5: echarts.init(document.getElementById('c5')), c6: echarts.init(document.getElementById('c6'))
                 };
 
-                // DONUT TASARIMI
-                function getDonut(title, d) {
+                // ORİJİNAL DONUT TASARIMI (BİREBİR AYNI)
+                function getOriginalDonut(title, d) {
                     return {
-                        title: { text: title, textStyle: { color: '#fff', fontSize: 14 }, left: 'center' },
+                        title: { text: title, textStyle: { color: '#fff', fontSize: 14, fontWeight: 'bold' }, left: 10, top: 10 },
                         tooltip: { trigger: 'item' },
+                        legend: { 
+                            type: 'scroll', orient: 'vertical', right: 10, top: 'middle', 
+                            textStyle: { color: '#fff', fontSize: 11 } 
+                        },
                         series: [{
-                            type: 'pie', radius: ['40%', '70%'], center: ['50%', '60%'],
-                            itemStyle: { borderRadius: 5, borderColor: '#03050a', borderWidth: 2, shadowBlur: 10, shadowColor: '#00f3ff' },
-                            label: { color: '#fff', formatter: '{b}\\n{d}%' },
+                            type: 'pie', 
+                            radius: ['40%', '70%'], 
+                            center: ['40%', '55%'], // Legend için grafiği biraz sola kaydırıyoruz
+                            avoidLabelOverlap: true,
+                            label: { color: '#fff', formatter: '{b}\\n{d}%', fontSize: 11 },
+                            labelLine: { show: true, length: 15, length2: 20 },
                             data: d
                         }]
                     };
                 }
 
-                // BAR TASARIMI
+                // SÜTUN (BAR) GRAFİK TASARIMI
                 function getBar(title, names, vals, color) {
                     return {
                         title: { text: title, textStyle: { color: '#fff', fontSize: 14 }, left: 'center' },
                         tooltip: { trigger: 'axis' },
-                        xAxis: { type: 'category', data: names, axisLabel: { color: '#00f3ff', rotate: 20, fontSize: 10 } },
-                        yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(0,243,255,0.1)' } } },
+                        xAxis: { type: 'category', data: names, axisLabel: { color: '#aaa', rotate: 30, fontSize: 10 } },
+                        yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
                         series: [{ 
                             type: 'bar', data: vals, 
-                            itemStyle: { color: color, shadowBlur: 10, shadowColor: color, borderRadius: [5,5,0,0] } 
+                            itemStyle: { color: color, borderRadius: [2,2,0,0] } 
                         }]
                     };
                 }
 
-                // NEON ÇİZGİ TASARIMI (5 VE 6)
+                // FÜTÜRİSTİK ÇİZGİ (LINE) GRAFİK TASARIMI (5 VE 6 İÇİN)
                 function getLine(title, months, seriesData) {
                     return {
                         title: { text: title, textStyle: { color: '#fff', fontSize: 14 }, left: 'center' },
@@ -410,31 +416,23 @@ if page == "1. Siber Dashboard":
                     };
                 }
 
-                // ÇİZİMLER
-                charts.c3.setOption(getDonut('3. Harcama Yapılan İlk 5 Firma', data.c3_data));
-                charts.c4.setOption(getDonut('4. Tür Bazlı Harcama Dağılımı', data.c4_data));
+                // GRAFİKLERİ ÇİZ
+                // Üst Kat: Orijinal Donutlar
+                charts.c3.setOption(getOriginalDonut('3. Harcama Yapılan İlk 10 Firma', data.c3_data));
+                charts.c4.setOption(getOriginalDonut('4. Tür Bazlı Harcama Dağılımı (USD)', data.c4_data));
+                
+                // Orta Kat: Barlar
                 charts.c1.setOption(getBar('1. En Çok Sipariş Edilen 10 Ürün', data.c1_names, data.c1_vals, '#00f3ff'));
                 charts.c2.setOption(getBar('2. En Çok Sermaye Yatırılan 10 Ürün', data.c2_names, data.c2_vals, '#ff00ff'));
                 
-                // 5. Grafik: Sermaye Trendi
+                // Alt Kat: Çizgi Grafikler (Fütüristik)
                 charts.c5.setOption(getLine('5. Aylık Toplam Sermaye Akışı (Son 5 Ay)', data.c5_months, [
                     { name: 'Sermaye ($)', data: data.c5_vals, color: '#00ff66' }
                 ]));
-
-                // 6. Grafik: Nakliye Türü Kıyaslama
                 charts.c6.setOption(getLine('6. Nakliye Türü Dağılımı (Hava vs Deniz)', data.c6_months, [
                     { name: 'Hava', data: data.c6_air, color: '#ffaa00' },
                     { name: 'Deniz', data: data.c6_sea, color: '#0011ff' }
                 ]));
-
-                // Donut Animasyonu
-                let angle = 90;
-                setInterval(() => {
-                    angle = (angle - 0.5) % 360;
-                    const opt = { series: [{ startAngle: angle }] };
-                    charts.c3.setOption(opt);
-                    charts.c4.setOption(opt);
-                }, 40);
 
                 window.addEventListener('resize', () => Object.values(charts).forEach(c => c.resize()));
             </script>
