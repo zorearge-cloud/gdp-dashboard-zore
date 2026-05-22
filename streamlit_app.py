@@ -7,21 +7,10 @@ import datetime
 import json
 import re
 
-# --- SİBER UZAY KOMUTA AYARLARI ---
-st.set_page_config(layout="wide", page_title="ZORE WAR ROOM SYSTEM")
+# --- AYARLAR VE ANAYASA (TAM KAPSAMLI YAPI) ---
+st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
 
-# Tam Ekran, Arka Plan Stabilizasyonu ve Streamlit Öğelerini Gizleme (CSS)
-st.markdown("""
-<style>
-    .reportview-container { background: #060913 !important; }
-    .stDeployButton { display:none !important; }
-    footer { visibility: hidden; }
-    header { visibility: hidden; }
-    div.block-container { padding-top: 1rem; padding-bottom: 0rem; padding-left: 1.5rem; padding-right: 1.5rem; }
-</style>
-""", unsafe_allow_html=True)
-
-# Canlı Veri Havuzu
+# 1. KURAL: Veri çekme bağlantıları ve tab yapıları tamamen korundu
 LINKS = [
     "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=xlsx",
@@ -31,6 +20,9 @@ LINKS = [
 ]
 
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
+
+EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', 'ADET', 'FIYAT', 'YUKLEME_TARIHI', 'NAKLİYE_TÜRÜ']
+
 HEADER_MAP = {
     'SIPARIS TARIHI': 'SIPARIS_TARIHI', 'SIPARIS_TARIHI': 'SIPARIS_TARIHI',
     'FIRMA': 'FIRMA', 'TUR': 'TUR', 'BARKOD': 'BARKOD',
@@ -38,281 +30,542 @@ HEADER_MAP = {
     'YUKLEME TARIHI': 'YUKLEME_TARIHI', 'YUKLEME_TARIHI': 'YUKLEME_TARIHI'
 }
 
-rates = {"EUR_TO_USD": 1.09, "CNY_TO_USD": 0.138}
+# --- CANLI DÖVİZ KURU MOTORU ---
+@st.cache_data(ttl=3600)
+def get_live_rates():
+    rates = {"EUR_TO_USD": 1.09, "CNY_TO_USD": 0.138, "PROUNCE": "Yedek Kur Panelden Okundu"}
+    try:
+        response = requests.get("https://open.er-api.com/v6/latest/USD", timeout=4)
+        if response.status_code == 200:
+            data = response.json()
+            usd_rates = data.get("rates", {})
+            eur_rate = usd_rates.get("EUR")
+            cny_rate = usd_rates.get("CNY")
+            if eur_rate and cny_rate:
+                rates["EUR_TO_USD"] = 1.0 / eur_rate
+                rates["CNY_TO_USD"] = 1.0 / cny_rate
+                rates["PROUNCE"] = "Canlı Kur API'den Çekildi"
+    except:
+        pass
+    return rates
 
-def strict_date_parser(val):
-    if pd.isna(val) or val == "": return "BELİRTİLMEMİŞ"
-    if hasattr(val, 'strftime'): return val.strftime('%Y-%m-%d')
-    s = str(val).strip().split()[0].replace('/', '.').replace('-', '.')
-    for fmt in ['%Y.%m.%d', '%d.%m.%Y']:
-        try: return datetime.datetime.strptime(s, fmt).strftime('%Y-%m-%d')
-        except: continue
+rates = get_live_rates()
+
+# --- GELİŞMİŞ TARİH STANDARTLAŞTIRMA MOTORU ---
+def strict_date_string_parser(val):
+    if pd.isna(val) or val == "":
+        return "BELİRTİLMEMİŞ"
+    if hasattr(val, 'strftime'):
+        return val.strftime('%Y-%m-%d')
+    
+    val_str = str(val).strip()
+    if " " in val_str:
+        val_str = val_str.split()[0]
+    
+    val_str = val_str.replace('/', '.').replace('-', '.')
+    
+    for fmt in ['%Y.%m.%d', '%d.%m.%Y', '%Y.%d.%m']:
+        try:
+            dt = datetime.datetime.strptime(val_str, fmt)
+            return dt.strftime('%Y-%m-%d')
+        except:
+            continue
+            
+    try:
+        dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
+        if not pd.isna(dt):
+            return dt.strftime('%Y-%m-%d')
+    except:
+        pass
     return "BELİRTİLMEMİŞ"
 
-def clean_and_process(df):
+# --- VERİ TEMİZLEME VE DÖNÜŞTÜRME MOTORU ---
+def clean_data(df, rates):
     df = df.loc[:, ~df.columns.duplicated()]
-    if 'SIPARIS_TARIHI' in df.columns:
-        df['SIPARIS_TARIHI'] = df['SIPARIS_TARIHI'].apply(strict_date_parser)
+    for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
+        if col in df.columns:
+            df[col] = df[col].apply(strict_date_string_parser)
+            
+    available_cols = [c for c in EXPECTED_COLUMNS if c in df.columns]
+    df = df[available_cols].copy()
+    df = df.dropna(how='all')
+    
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
-    if 'FIYAT' in df.columns:
-        def parse_price(row):
-            v = str(row['FIYAT']).upper().strip()
-            firma = str(row.get('FIRMA', '')).upper()
-            mult = 1.0
-            if 'CATHY' in firma or any(x in v for x in ['¥', '￥', 'CNY']): mult = rates["CNY_TO_USD"]
-            elif any(x in v for x in ['€', 'EUR']): mult = rates["EUR_TO_USD"]
-            cleaned = re.sub(r'[^\d.,]', '', v)
-            if ',' in cleaned and '.' in cleaned:
-                if cleaned.find(',') > cleaned.find('.'): cleaned = cleaned.replace('.', '').replace(',', '.')
-                else: cleaned = cleaned.replace(',', '')
-            else: cleaned = cleaned.replace(',', '.')
-            try: return float(cleaned) * mult
-            except: return 0.0
-        df['TOPLAM_SERMAYE'] = df['ADET'] * df.apply(parse_price, axis=1)
+        
+    if 'FIYAT' in df.columns and 'FIRMA' in df.columns:
+        def parse_price_details(row):
+            val = row['FIYAT']
+            firma_name = str(row['FIRMA']).upper().strip()
+            if pd.isna(val):
+                return 0.0, 0.0, '$'
+            
+            val_str = str(val).strip()
+            currency = 'USD'
+            sym_char = '$'
+            
+            yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元', 'CHINESE']
+            euro_symbols = ['€', 'EUR', 'EURO']
+            
+            if 'CATHY' in firma_name or 'AECOOLY' in firma_name or any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
+                currency = 'CNY'
+                sym_char = '¥'
+            elif any(sym in val_str for sym in euro_symbols) or any(sym in val_str.upper() for sym in euro_symbols):
+                currency = 'EUR'
+                sym_char = '€'
+                
+            for clean_target in yuan_symbols + euro_symbols + ['$', 'usd', 'USD']:
+                val_str = val_str.replace(clean_target, '')
+            val_str = val_str.strip()
+            
+            if ',' in val_str and '.' in val_str:
+                if val_str.find(',') > val_str.find('.'):
+                    val_str = val_str.replace('.', '').replace(',', '.')
+                else:
+                    val_str = val_str.replace(',', '')
+            elif ',' in val_str:
+                val_str = val_str.replace(',', '.')
+                
+            try:
+                numeric_price = float(val_str)
+            except:
+                numeric_price = 0.0
+                
+            if currency == 'CNY':
+                usd_price = numeric_price * rates["CNY_TO_USD"]
+            elif currency == 'EUR':
+                usd_price = numeric_price * rates["EUR_TO_USD"]
+            else:
+                usd_price = numeric_price
+            return usd_price, numeric_price, sym_char
+            
+        res = df.apply(parse_price_details, axis=1)
+        df['FIYAT'] = [r[0] for r in res]
+        df['ORIJINAL_FIYAT'] = [r[1] for r in res]
+        df['PARA_BIRIMI'] = [r[2] for r in res]
     else:
-        df['TOPLAM_SERMAYE'] = 0.0
+        df['ORIJINAL_FIYAT'] = df['FIYAT'] if 'FIYAT' in df.columns else 0.0
+        df['PARA_BIRIMI'] = '$'
+        
+    df['TOPLAM_SERMAYE'] = df['ADET'] * df['FIYAT']
+    
+    for text_col in ['FIRMA', 'TUR', 'MALIN CINSI', 'BARKOD', 'NAKLİYE_TÜRÜ']:
+        if text_col in df.columns:
+            if text_col == 'BARKOD':
+                def strict_barcode_clean(x):
+                    if pd.isna(x): return "BELİRTİLMEMİŞ"
+                    if isinstance(x, (int, float)):
+                        try:
+                            if x == int(x): return str(int(x))
+                            return str(x)
+                        except: return str(x)
+                    s = str(x).strip()
+                    if s.endswith('.0'): s = s[:-2]
+                    if '.' in s:
+                        try:
+                            f = float(s)
+                            if f == int(f): return str(int(f))
+                        except: pass
+                    if s in ['nan', 'None', '']: return "BELİRTİLMEMİŞ"
+                    return s
+                df['BARKOD'] = df['BARKOD'].apply(strict_barcode_clean)
+            else:
+                val_series = df[text_col].fillna("BELİRTİLMEMİŞ").astype(str).str.strip()
+                df[text_col] = val_series.replace({'nan': 'BELİRTİLMEMİŞ', 'None': 'BELİRTİLMEMİŞ', '': 'BELİRTİLMEMİŞ'})
     return df
 
-@st.cache_data(ttl=300)
-def load_war_room_data():
-    master_list = []
-    error_logs = []
-    for idx, link in enumerate(LINKS):
+# --- COKLU DOSYA VE LINK YÖNETİM MOTORU ---
+@st.cache_data(ttl=600)
+def get_all_data(rates):
+    all_data_list = []
+    pool = {tab: [] for tab in TARGET_TABS}
+    
+    for link in LINKS:
         try:
-            res = requests.get(link, timeout=12)
-            if res.status_code != 200: 
-                error_logs.append(f"Link {idx+1} HTTP Hatası: {res.status_code}")
-                continue
-            wb = openpyxl.load_workbook(io.BytesIO(res.content), data_only=True)
+            response = requests.get(link, timeout=10)
+            if response.status_code != 200: continue
+            
+            wb = openpyxl.load_workbook(io.BytesIO(response.content), data_only=True)
             for tab in TARGET_TABS:
                 if tab in wb.sheetnames:
                     sheet = wb[tab]
                     rows = list(sheet.iter_rows(values_only=False))
-                    if not rows or len(rows) < 2: continue
-                    headers = [HEADER_MAP.get(str(c.value).strip().upper().replace('İ','I'), str(c.value)) for c in rows[0]]
-                    data = [[cell.value for cell in r] for r in rows[1:] if not all(cell.value is None for cell in r)]
-                    if not data: continue
-                    sub_df = pd.DataFrame(data, columns=headers[:len(data[0])])
-                    master_list.append(clean_and_process(sub_df))
-        except Exception as e:
-            error_logs.append(f"Link {idx+1} İşleme Hatası: {str(e)}")
+                    if not rows: continue
+                    
+                    raw_headers = [str(cell.value).strip().upper() if cell.value is not None else '' for cell in rows[0]]
+                    headers = []
+                    for h in raw_headers:
+                        clean_h = h.replace('İ', 'I').replace('Ş', 'S').replace('Ü', 'U').replace('Ç', 'C').replace('Ğ', 'G').replace('_', ' ')
+                        headers.append(HEADER_MAP.get(clean_h, h))
+                        
+                    try:
+                        fiyat_idx = headers.index('FIYAT')
+                    except ValueError:
+                        fiyat_idx = -1
+                        
+                    data = []
+                    for row in rows[1:]:
+                        if all(cell.value is None for cell in row): continue
+                        row_data = []
+                        for idx, cell in enumerate(row):
+                            if idx >= len(headers): break
+                            val = cell.value
+                            if idx == fiyat_idx and val is not None:
+                                fmt = str(cell.number_format).upper()
+                                if any(x in fmt for x in ['¥', '￥', 'CNY', '元', '804', '2052', 'E01']):
+                                    val = f"¥{val}"
+                                elif any(x in fmt for x in ['€', 'EUR', '40C']):
+                                    val = f"€{val}"
+                            row_data.append(val)
+                        while len(row_data) < len(headers):
+                            row_data.append(None)
+                        data.append(row_data)
+                        
+                    df = pd.DataFrame(data, columns=headers)
+                    tab_lower = tab.lower()
+                    prefix = ""
+                    if "has" in tab_lower: prefix = "HAS "
+                    elif "meh" in tab_lower: prefix = "MEH "
+                    elif "ist" in tab_lower: prefix = "IST "
+                    
+                    if "air" in tab_lower: df['NAKLİYE_TÜRÜ'] = prefix + "HAVA"
+                    elif "sea" in tab_lower: df['NAKLİYE_TÜRÜ'] = prefix + "DENİZ"
+                    else: df['NAKLİYE_TÜRÜ'] = prefix + "BELİRTİLMEMİŞ"
+                    
+                    df_clean = clean_data(df, rates)
+                    if not df_clean.empty:
+                        pool[tab].append(df_clean)
+                        all_data_list.append(df_clean)
+        except:
             continue
-    return (pd.concat(master_list, ignore_index=True) if master_list else pd.DataFrame()), error_logs
+            
+    full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
+    if not full_df.empty:
+        def get_clean_period(x):
+            if x == "BELİRTİLMEMİŞ" or len(x) < 7: return "Bilinmeyen Dönem"
+            return x[:7]
+        full_df['SIPARIS_AY'] = full_df['SIPARIS_TARIHI'].apply(get_clean_period)
+        
+    return full_df, pool
 
-# Veriyi ve logları çekiyoruz
-df_raw, logs = load_war_room_data()
+df_dashboard, data_pool = get_all_data(rates)
 
-if logs:
-    with st.sidebar.expander("🛠️ Sistem Terminal Çıktıları"):
-        for log in logs: st.caption(log)
+# --- NAVİGASYON VE SIDEBAR YÖNETİMİ ---
+st.sidebar.title("ZORE YÖNETİM PANELİ")
+st.sidebar.markdown(f"**Döviz Durumu:** `{rates['PROUNCE']}`")
+st.sidebar.text(f"1 EUR = {rates['EUR_TO_USD']:.4f} $")
+st.sidebar.text(f"1 CNY = {rates['CNY_TO_USD']:.4f} $")
+st.sidebar.markdown("---")
 
-if df_raw.empty:
-    st.error("🚨 SİBER VERİ MATRİSİ ALINAMADI. Bağlantıları kontrol edin.")
-else:
-    # Dönemsel Zaman Eğrisini Çıkarma
-    if 'SIPARIS_TARIHI' in df_raw.columns:
-        df_raw['AY'] = df_raw['SIPARIS_TARIHI'].str[:7]
+page = st.sidebar.radio("Sayfa Seçimi", ["1. Genel Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
+
+# --- SAYFA 1: GENEL DASHBOARD (SİBER SAVAŞ ODASI MATRİSİ) ---
+if page == "1. Genel Dashboard":
+    st.header("📊 Genel Dashboard - Siber İzleme Merkezi")
+    
+    if df_dashboard.empty:
+        st.error("Veri havuzunda işlenecek kayıt bulunamadı.")
     else:
-        df_raw['AY'] = "2026-01"
+        # Üst Metrik Kartları (Orijinal yapı korunuyor)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Toplam Sipariş Adedi", f"{int(df_dashboard['ADET'].sum()):,}")
+        c2.metric("Toplam Sermaye Yatırımı (USD)", f"{df_dashboard['TOPLAM_SERMAYE'].sum():,.2f} $")
+        c3.metric("Çalışılan Firma Sayısı", df_dashboard['FIRMA'].nunique())
+        st.markdown("---")
         
-    df_2026 = df_raw[df_raw['AY'].str.startswith('2026', na=False)].copy()
-    if df_2026.empty:
-        df_2026 = df_raw.copy()
-
-    # Kronolojik olarak ayları sırala
-    months_sequence = sorted(df_2026['AY'].unique())
-    
-    # JavaScript Matrix Veri Köprüsü Hazırlığı
-    timeline_matrix = {}
-    
-    for month in months_sequence:
-        df_m = df_2026[df_2026['AY'] == month]
+        # SİNEMATİK VERİ HAZIRLIĞI (ZAMAN MAKİNESİ ALGORİTMASI)
+        valid_df = df_dashboard[df_dashboard['SIPARIS_AY'] != "Bilinmeyen Dönem"].copy()
+        months_sequence = sorted(valid_df['SIPARIS_AY'].unique().tolist())
         
-        # 1. Yatay Bar Yarışı için Firma Sıralaması (Büyükten Küçüğe ECharts Map için tersten dizilir)
-        if 'FIRMA' in df_m.columns:
-            top_firms = df_m.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-            top_firms = top_firms.iloc[::-1]  # Görsel akış için ters çevrilir
-            firms_list = top_firms['FIRMA'].tolist()
-            sermaye_list = top_firms['TOPLAM_SERMAYE'].round(2).tolist()
+        if not months_sequence:
+            months_sequence = ["Genel"]
+            
+        # Ön Hesaplamalar (Line grafikleri için)
+        top_5_firmalar = df_dashboard.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).index
+        trend_firma = df_dashboard[df_dashboard['FIRMA'].isin(top_5_firmalar)].groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().reset_index()
+        
+        top_5_turler = df_dashboard.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).index
+        trend_tur = df_dashboard[df_dashboard['TUR'].isin(top_5_turler)].groupby(['SIPARIS_AY', 'TUR'])['TOPLAM_SERMAYE'].sum().reset_index()
+        
+        trend_total = df_dashboard.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
+        
+        timeline_matrix = {}
+        for month in months_sequence:
+            # İlgili aya kadar olan kümeli veri (Gerçekçi Bar Yarışı için)
+            df_cum = df_dashboard[df_dashboard['SIPARIS_AY'] <= month]
+            
+            # 1. Top 10 Ürün (Adet)
+            c1_df = df_cum.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index().iloc[::-1]
+            
+            # 2. Top 10 Ürün ($)
+            c2_df = df_cum.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index().iloc[::-1]
+            
+            # 3. İlk 10 Firma Harcama
+            c3_df = df_cum.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
+            c3_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": row['FIRMA']} for _, row in c3_df.iterrows()]
+            
+            # 4. Tür Bazlı Harcama
+            c4_df = df_cum.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
+            c4_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": row['TUR']} for _, row in c4_df.iterrows()]
+            
+            # 8. Barkod Bazlı
+            df_barkod = df_cum[(df_cum['BARKOD'] != "BELİRTİLMEMİŞ") & (df_cum['BARKOD'].str.strip() != "")]
+            c8_df = df_barkod.groupby('BARKOD').agg({'ADET': 'sum'}).nlargest(10, 'ADET').reset_index().iloc[::-1]
+            
+            # 5, 6, 7 Line Chart (Sadece o aya kadar olan zaman çizelgesi)
+            curr_months = [m for m in months_sequence if m <= month]
+            
+            c5_series = []
+            for f in top_5_firmalar:
+                f_data = trend_firma[trend_firma['FIRMA'] == f]
+                data = [f_data[f_data['SIPARIS_AY'] == m]['TOPLAM_SERMAYE'].sum() if m in f_data['SIPARIS_AY'].values else 0 for m in curr_months]
+                c5_series.append({"name": f, "type": "line", "smooth": True, "showSymbol": False, "data": [round(x,2) for x in data]})
+                
+            c6_series = []
+            for t in top_5_turler:
+                t_data = trend_tur[trend_tur['TUR'] == t]
+                data = [t_data[t_data['SIPARIS_AY'] == m]['TOPLAM_SERMAYE'].sum() if m in t_data['SIPARIS_AY'].values else 0 for m in curr_months]
+                c6_series.append({"name": t, "type": "line", "smooth": True, "showSymbol": False, "data": [round(x,2) for x in data]})
+                
+            c7_data = [round(trend_total[trend_total['SIPARIS_AY'] == m]['TOPLAM_SERMAYE'].sum(), 2) if m in trend_total['SIPARIS_AY'].values else 0 for m in curr_months]
+            
+            timeline_matrix[month] = {
+                "c1_names": c1_df['MALIN CINSI'].tolist(), "c1_vals": c1_df['ADET'].tolist(),
+                "c2_names": c2_df['MALIN CINSI'].tolist(), "c2_vals": c2_df['TOPLAM_SERMAYE'].tolist(),
+                "c3_data": c3_data,
+                "c4_data": c4_data,
+                "c5_series": c5_series,
+                "c6_series": c6_series,
+                "c7_months": curr_months, "c7_data": c7_data,
+                "c8_names": c8_df['BARKOD'].tolist(), "c8_vals": c8_df['ADET'].tolist(),
+            }
+
+        # HTML VE JAVASCRIPT TEMPLATE (SİBER EKRAN - NEON VE 3D HOLOGRAM TASARIMI)
+        html_template = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+            <style>
+                body { background-color: #03050a; font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 10px; overflow-x: hidden; color: #fff; }
+                .header-box { text-align: center; border-bottom: 2px solid #00f3ff; box-shadow: 0 5px 25px rgba(0, 243, 255, 0.4); padding-bottom: 15px; margin-bottom: 40px; }
+                .matrix-title { color: #fff; font-size: 24px; letter-spacing: 4px; margin: 0; text-shadow: 0 0 10px #00f3ff, 0 0 20px #00f3ff, 0 0 40px #00f3ff; }
+                .matrix-subtitle { color: #00ff66; font-size: 16px; margin-top: 8px; font-weight: bold; text-shadow: 0 0 15px #00ff66; letter-spacing: 1px; }
+                .period-badge { color: #ff00ff; background: rgba(255,0,255,0.15); padding: 5px 18px; border-radius: 6px; border: 1px solid #ff00ff; box-shadow: 0 0 15px #ff00ff, inset 0 0 10px #ff00ff; font-family: monospace; font-size: 18px; margin-left: 15px; text-shadow: 0 0 10px #ff00ff; }
+                
+                .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; perspective: 2000px; padding: 20px; }
+                
+                /* GIF'teki Kendi Etrafında Dönen Fütüristik Neon Panel Tasarımı */
+                .panel { 
+                    background: rgba(2, 6, 19, 0.85); 
+                    border: 2px solid #00f3ff; 
+                    border-radius: 12px; 
+                    box-shadow: 0 0 25px rgba(0, 243, 255, 0.6), inset 0 0 20px rgba(0, 243, 255, 0.3); 
+                    height: 380px; 
+                    padding: 15px; 
+                    transform-style: preserve-3d;
+                    animation: cyberSpin 18s linear infinite;
+                }
+                
+                @keyframes cyberSpin {
+                    0% { transform: rotateY(0deg); border-color: #00f3ff; box-shadow: 0 0 25px #00f3ff, inset 0 0 20px #00f3ff; }
+                    33% { transform: rotateY(120deg); border-color: #ff00ff; box-shadow: 0 0 25px #ff00ff, inset 0 0 20px #ff00ff; }
+                    66% { transform: rotateY(240deg); border-color: #00ff66; box-shadow: 0 0 25px #00ff66, inset 0 0 20px #00ff66; }
+                    100% { transform: rotateY(360deg); border-color: #00f3ff; box-shadow: 0 0 25px #00f3ff, inset 0 0 20px #00f3ff; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header-box">
+                <h2 class="matrix-title">🎬 ZORE CYBERSPACE ZAMAN MAKİNESİ (OTOMATİK SENKRON DÖNGÜ)</h2>
+                <div class="matrix-subtitle">
+                    SİSTEM DURUMU: <span style="color: #00ff66;">AKTİF</span> | 
+                    ZAMAN ÇİZELGESİ TARANIYOR: <span id="active-period" class="period-badge">BAŞLIYOR...</span>
+                </div>
+            </div>
+            
+            <div class="grid-container">
+                <div id="c1" class="panel"></div>
+                <div id="c2" class="panel"></div>
+                <div id="c3" class="panel"></div>
+                <div id="c4" class="panel"></div>
+                <div id="c5" class="panel"></div>
+                <div id="c6" class="panel"></div>
+                <div id="c7" class="panel"></div>
+                <div id="c8" class="panel"></div>
+            </div>
+
+            <script>
+                const timelineMatrix = __TIMELINE_MATRIX__;
+                const monthsSequence = __MONTHS_SEQUENCE__;
+                let currentIndex = 0;
+                
+                // Fütüristik Neon ECharts Ayarları
+                const textStyle = { color: '#ffffff', fontSize: 13, fontWeight: 'bold', textShadowBlur: 10, textShadowColor: '#00f3ff' };
+                const axisLabelStyle = { color: '#00f3ff', fontSize: 11, width: 120, overflow: 'truncate', textShadowBlur: 8, textShadowColor: '#00f3ff' };
+                const splitLineStyle = { lineStyle: { color: 'rgba(0, 243, 255, 0.2)', shadowBlur: 10, shadowColor: '#00f3ff' } };
+
+                // Grafikleri Başlat
+                const charts = {
+                    c1: echarts.init(document.getElementById('c1')), c2: echarts.init(document.getElementById('c2')),
+                    c3: echarts.init(document.getElementById('c3')), c4: echarts.init(document.getElementById('c4')),
+                    c5: echarts.init(document.getElementById('c5')), c6: echarts.init(document.getElementById('c6')),
+                    c7: echarts.init(document.getElementById('c7')), c8: echarts.init(document.getElementById('c8'))
+                };
+
+                // Sabit Seçenekleri Ayarla (Neon Gölgeler Eklendi)
+                charts.c1.setOption({ title: { text: '1. En Çok Sipariş Edilen 10 Ürün (Adet)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '25%', right: '5%', bottom: '5%', top: '15%' }, xAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle }, yAxis: { type: 'category', axisLabel: axisLabelStyle } });
+                charts.c2.setOption({ title: { text: '2. En Çok Sermaye Yatırılan 10 Ürün ($)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '25%', right: '5%', bottom: '5%', top: '15%' }, xAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle }, yAxis: { type: 'category', axisLabel: axisLabelStyle } });
+                charts.c3.setOption({ title: { text: '3. Harcama Yapılan İlk 10 Firma (USD)', textStyle: textStyle }, tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: [20, 100], center: ['50%', '55%'], roseType: 'area', itemStyle: { borderRadius: 4, borderColor: '#00f3ff', borderWidth: 1, shadowBlur: 20, shadowColor: '#00f3ff' }, label: { color: '#fff', fontSize: 11, textShadowBlur: 10, textShadowColor: '#00f3ff' } }] });
+                charts.c4.setOption({ title: { text: '4. Tür Bazlı Harcama Dağılımı (USD)', textStyle: textStyle }, tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['40%', '70%'], center: ['50%', '55%'], itemStyle: { borderRadius: 5, borderColor: '#03050a', borderWidth: 2, shadowBlur: 25, shadowColor: '#ff00ff' }, label: { color: '#fff', fontSize: 11, textShadowBlur: 10, textShadowColor: '#ff00ff' } }] });
+                charts.c5.setOption({ title: { text: '5. Aylık Firma Harcama Trendi (Top 5)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '10%', right: '5%', bottom: '10%', top: '20%' }, xAxis: { type: 'category', axisLabel: axisLabelStyle }, yAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle } });
+                charts.c6.setOption({ title: { text: '6. Aylık Tür Harcama Trendi (Top 5)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '10%', right: '5%', bottom: '10%', top: '20%' }, xAxis: { type: 'category', axisLabel: axisLabelStyle }, yAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle } });
+                charts.c7.setOption({ title: { text: '7. Aylık Toplam Sermaye Akışı ($)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '10%', right: '5%', bottom: '10%', top: '15%' }, xAxis: { type: 'category', axisLabel: axisLabelStyle, splitLine: splitLineStyle }, yAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle }, series: [{ type: 'line', smooth: true, areaStyle: { color: 'rgba(0, 243, 255, 0.3)' }, lineStyle: { color: '#00f3ff', width: 4, shadowBlur: 20, shadowColor: '#00f3ff' }, itemStyle: { color: '#00f3ff', shadowBlur: 15, shadowColor: '#00f3ff' } }] });
+                charts.c8.setOption({ title: { text: '8. Barkod Bazlı Top 10 Ürün (Adet)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '20%', right: '5%', bottom: '5%', top: '15%' }, xAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle }, yAxis: { type: 'category', axisLabel: axisLabelStyle } });
+
+                // Renk Paletleri (Daha Parlak ve Fütüristik)
+                const gradBlue = new echarts.graphic.LinearGradient(0,0,1,0, [{offset:0, color:'#0011ff'}, {offset:1, color:'#00f3ff'}]);
+                const gradOrange = new echarts.graphic.LinearGradient(0,0,1,0, [{offset:0, color:'#ff3300'}, {offset:1, color:'#ffcc00'}]);
+                const gradPink = new echarts.graphic.LinearGradient(0,0,1,0, [{offset:0, color:'#aa00ff'}, {offset:1, color:'#ff00ff'}]);
+
+                function updateDashboard() {
+                    const month = monthsSequence[currentIndex];
+                    const data = timelineMatrix[month];
+                    
+                    document.getElementById('active-period').innerText = (currentIndex === monthsSequence.length - 1) ? month + " (GENEL TOPLAM)" : month;
+
+                    // Serilere Neon Gölgeler Ekleniyor
+                    charts.c1.setOption({ yAxis: { data: data.c1_names }, series: [{ type: 'bar', data: data.c1_vals, itemStyle: { color: gradBlue, borderRadius: [0,4,4,0], shadowBlur: 15, shadowColor: '#00f3ff' } }] });
+                    charts.c2.setOption({ yAxis: { data: data.c2_names }, series: [{ type: 'bar', data: data.c2_vals, itemStyle: { color: gradOrange, borderRadius: [0,4,4,0], shadowBlur: 15, shadowColor: '#ffaa00' } }] });
+                    charts.c3.setOption({ series: [{ data: data.c3_data }] });
+                    charts.c4.setOption({ series: [{ data: data.c4_data }] });
+                    
+                    // Line serileri için parlama efektleri
+                    const c5_styled = data.c5_series.map(s => ({...s, lineStyle: {width: 3, shadowBlur: 15, shadowColor: '#00f3ff'}}));
+                    const c6_styled = data.c6_series.map(s => ({...s, lineStyle: {width: 3, shadowBlur: 15, shadowColor: '#ff00ff'}}));
+
+                    charts.c5.setOption({ xAxis: { data: data.c7_months }, series: c5_styled });
+                    charts.c6.setOption({ xAxis: { data: data.c7_months }, series: c6_styled });
+                    charts.c7.setOption({ xAxis: { data: data.c7_months }, series: [{ data: data.c7_data }] });
+                    charts.c8.setOption({ yAxis: { data: data.c8_names }, series: [{ type: 'bar', data: data.c8_vals, itemStyle: { color: gradPink, borderRadius: [0,4,4,0], shadowBlur: 15, shadowColor: '#ff00ff' } }] });
+                }
+
+                function loopEngine() {
+                    updateDashboard();
+                    let delay = 2500; // Normal geçiş süresi
+                    if (currentIndex === monthsSequence.length - 1) {
+                        delay = 8000; // Son ayda (Genel Toplam) 8 saniye bekle
+                        currentIndex = 0; // Başa sar
+                    } else {
+                        currentIndex++;
+                    }
+                    setTimeout(loopEngine, delay);
+                }
+
+                // Döngüyü Başlat
+                setTimeout(loopEngine, 500);
+
+                // Ekran yeniden boyutlandırma
+                window.addEventListener('resize', () => {
+                    Object.values(charts).forEach(c => c.resize());
+                });
+            </script>
+        </body>
+        </html>
+        """
+        
+        html_ready = html_template.replace("__TIMELINE_MATRIX__", json.dumps(timeline_matrix)).replace("__MONTHS_SEQUENCE__", json.dumps(months_sequence))
+        
+        # Matrix arayüzünü Streamlit'e ekleme (Geniş ve uzun bir alan sağlıyoruz)
+        st.components.v1.html(html_ready, height=1700, scrolling=False)
+
+
+# --- SAYFA 2: FİRMA BAZLI ANALİZ ---
+elif page == "2. Firma Bazlı Analiz":
+    st.header("🏢 Firma Bazlı Analiz")
+    if df_dashboard.empty:
+        st.error("Veri havuzu boş.")
+    else:
+        firmalar = sorted([str(f) for f in df_dashboard['FIRMA'].unique() if str(f) != "BELİRTİLMEMİŞ"])
+        if not firmalar:
+            st.warning("Analiz edilecek geçerli bir firma kaydı bulunamadı.")
         else:
-            firms_list, sermaye_list = ["Firma Verisi Yok"], [0]
+            selected_firma = st.selectbox("Analiz edilecek firmayı seçin", firmalar)
+            firma_df = df_dashboard[df_dashboard['FIRMA'] == selected_firma]
             
-        # 2. Tür Dağılım Matrisi (Donut Matrisi Verisi)
-        if 'TUR' in df_m.columns:
-            top_cats = df_m.groupby('TUR')['ADET'].sum().nlargest(8).reset_index()
-            pie_data = [{"value": int(row['ADET']), "name": str(row['TUR'])} for _, row in top_cats.iterrows()]
-        else:
-            pie_data = [{"value": 0, "name": "Tür Yok"}]
+            c1, c2, c3 = st.columns(3)
+            c1.metric(f"{selected_firma} Toplam Alım (Adet)", f"{int(firma_df['ADET'].sum()):,}")
+            c2.metric(f"{selected_firma} Toplam Ciro (USD)", f"{firma_df['TOPLAM_SERMAYE'].sum():,.2f} $")
+            tur_counts = firma_df.groupby('TUR')['ADET'].sum()
+            en_cok_tur = tur_counts.idxmax() if not tur_counts.empty and tur_counts.sum() > 0 else "Veri Yok"
+            c3.metric("En Çok Aldığı Tür", en_cok_tur)
             
-        timeline_matrix[month] = {
-            "firms": firms_list,
-            "sermaye": sermaye_list,
-            "pie": pie_data
-        }
-
-    # --- CANVAS & WEBGL SAVAŞ ODASI MATRİS ARAYÜZÜ (HTML5 / ECHARTS) ---
-    cinematic_loop_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-        <style>
-            body {{
-                background-color: #060913;
-                color: #00f3ff;
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                margin: 0;
-                padding: 0px;
-                overflow: hidden;
-            }}
-            .matrix-header {{
-                margin-bottom: 15px;
-                border-bottom: 1px dashed rgba(0,243,255,0.15); 
-                padding-bottom: 10px;
-            }}
-            .matrix-title {{
-                margin: 0;
-                font-size: 16px; 
-                color: #ffffff; 
-                letter-spacing: 1px;
-                font-weight: 600;
-            }}
-            .matrix-subtitle {{
-                margin: 5px 0 0 0;
-                font-size: 12px; 
-                color: #00f3ff; 
-                font-weight: 600;
-            }}
-            .grid-layout {{
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 20px;
-            }}
-            .panel-box {{
-                background: rgba(4, 11, 28, 0.7);
-                border: 1px solid rgba(0, 243, 255, 0.12);
-                border-radius: 8px;
-                padding: 15px;
-                height: 520px;
-                box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
-            }}
-        </style>
-    </head>
-    <body>
-
-        <div class="matrix-header">
-            <h2 class="matrix-title">🎬 Canlı Sinematik Döngü Koridoru (Otomatik Film Modu)</h2>
-            <p class="matrix-subtitle">
-                DÖNEM: <span id="active-period" style="color: #ffaa00; background: rgba(255,170,0,0.15); padding: 2px 8px; border-radius: 4px; font-family: monospace;">---- --</span> 
-                <span style="color: #00ff66; margin-left: 10px;">[ 🟢 Sistem SÜREKLİ DÖNGÜDE - FİLM MODU AKTİF ]</span>
-            </p>
-        </div>
-
-        <div class="grid-layout">
-            <div id="glow_bar_race" class="panel-box"></div>
-            <div id="glow_pie_radar" class="panel-box"></div>
-        </div>
-
-        <script>
-            // Veri Altyapısının Enjeksiyonu
-            const timelineMatrix = {json.dumps(timeline_matrix)};
-            const monthsSequence = {json.dumps(months_sequence)};
+            import plotly.express as px
+            col_a, col_b = st.columns(2)
+            if not firma_df.empty and firma_df['TOPLAM_SERMAYE'].sum() > 0:
+                kategori_ozet = firma_df.groupby('TUR')['TOPLAM_SERMAYE'].sum().reset_index()
+                if len(kategori_ozet) > 6:
+                    en_buyuk_6 = kategori_ozet.nlargest(6, 'TOPLAM_SERMAYE')['TUR'].tolist()
+                    firma_df_pie = firma_df.copy()
+                    firma_df_pie['TUR_GRAFIK'] = firma_df_pie['TUR'].apply(lambda x: x if x in en_buyuk_6 else 'DİĞER')
+                else:
+                    firma_df_pie = firma_df.copy()
+                    firma_df_pie['TUR_GRAFIK'] = firma_df_pie['TUR']
+                
+                fig_a = px.pie(firma_df_pie, values='TOPLAM_SERMAYE', names='TUR_GRAFIK', title=f"{selected_firma} Ürün Kategorisi Dağılımı (İlk 6 + Diğer)", hole=0.4)
+                fig_a.update_traces(textinfo='label+percent')
+                col_a.plotly_chart(fig_a, use_container_width=True)
+            else:
+                col_a.info("Grafik için yeterli veri yok.")
+                
+            trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
+            if not trend_data_all.empty and trend_data_all['TOPLAM_SERMAYE'].sum() > 0:
+                fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE')
+                fig_b.update_layout(xaxis_type='category')
+                col_b.plotly_chart(fig_b, use_container_width=True)
+            else:
+                col_b.info("Zaman trendi grafik verisi bulunamadı.")
+                
+            st.markdown("---")
+            st.subheader(f"🔍 {selected_firma} Sipariş Listesinde Barkod Sorgulama")
+            search_barcode = st.text_input("Barkod Yazın (Varmı / Yokmu Kontrolü):", placeholder="Kontrol etmek istediğiniz barkodu buraya girin...").strip()
+            display_df = firma_df.copy()
             
-            let currentIndex = 0;
+            if search_barcode:
+                search_res = display_df[display_df['BARKOD'].str.contains(search_barcode, case=False, na=False)]
+                if not search_res.empty:
+                    st.success(f"✅ Barkod Bulundu! Bu firmaya ait listede aradığınız barkod ile eşleşen {len(search_res)} adet kayıt var.")
+                    display_df = search_res
+                else:
+                    st.error("❌ Barkod Bulunamadı! Bu firmanın ham veri listesinde yazdığınız barkod mevcut değil.")
+                    
+            st.markdown(f"**{selected_firma} Veri Listesi:**")
+            display_df_formatted = display_df.copy()
+            display_df_formatted['FIYAT'] = display_df_formatted['FIYAT'].map('{:,.2f} $'.format)
+            display_df_formatted['TOPLAM_SERMAYE'] = display_df_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
+            
+            drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in display_df_formatted.columns]
+            if drop_cols:
+                display_df_formatted = display_df_formatted.drop(columns=drop_cols)
+            st.dataframe(display_df_formatted.sort_values(by='SIPARIS_TARIHI', ascending=False), use_container_width=True, hide_index=True)
 
-            // --- 1. SİBER YATAY BAR YARIŞI ---
-            const barChart = echarts.init(document.getElementById('glow_bar_race'));
-            const barOption = {{
-                backgroundColor: 'transparent',
-                title: {{ text: '3. Firmaların Aylık Birikimli Güç Yarışı (Sinematik Akış)', textStyle: {{ color: '#00f3ff', fontSize: 13, fontWeight: 'normal' }} }},
-                tooltip: {{ trigger: 'axis', axisPointer: {{ type: 'shadow' }} }},
-                grid: {{ left: '15%', right: '8%', top: '12%', bottom: '8%' }},
-                xAxis: {{ type: 'value', axisLabel: {{ color: '#7a92b5' }}, splitLine: {{ lineStyle: {{ color: 'rgba(0,243,255,0.04)' }} }} }},
-                yAxis: {{ type: 'category', data: [], axisLabel: {{ color: '#7a92b5', fontSize: 11 }} }},
-                series: [{{
-                    type: 'bar',
-                    data: [],
-                    itemStyle: {{
-                        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-                            {{ offset: 0, color: '#0033ff' }},
-                            {{ offset: 1, color: '#00f3ff' }}
-                        ]),
-                        borderRadius: [0, 4, 4, 0]
-                    }},
-                    label: {{ show: true, position: 'right', color: '#ffffff', formatter: '{{c}} $' }}
-                }}]
-            }};
-            barChart.setOption(barOption);
-
-            // --- 2. FÜTÜRİSTİK HALO PASTA GRAFİĞİ (ZORE RADAR CENTER) ---
-            const pieChart = echarts.init(document.getElementById('glow_pie_radar'));
-            const pieOption = {{
-                backgroundColor: 'transparent',
-                title: [
-                    {{
-                        text: '4. Toplam Dönem Genel Tür Dağılım Matrisi',
-                        textStyle: {{ color: '#ff00ff', fontSize: 13, fontWeight: 'normal' }},
-                        left: 'left',
-                        top: 'top'
-                    }},
-                    {{
-                        text: 'ZORE\\nRADAR',
-                        left: 'center',
-                        top: '48%',
-                        textStyle: {{ color: '#00f3ff', fontSize: 12, fontWeight: '800', align: 'center', fontFamily: 'monospace', lineHeight: 16 }}
-                    }}
-                ],
-                tooltip: {{ trigger: 'item', formatter: '{{b}}: {{c}} Adet ({{d}}%)' }},
-                series: [{{
-                    type: 'pie',
-                    radius: ['42%', '68%'],
-                    center: ['50%', '52%'],
-                    itemStyle: {{ borderRadius: 5, borderColor: '#040b1c', borderWidth: 2 }},
-                    label: {{ color: '#7a92b5', fontSize: 11, formatter: '{{b}}\\n{{d}}%' }},
-                    data: [],
-                    color: ['#00f3ff', '#ff00ff', '#00ff66', '#ffaa00', '#9900ff', '#ff0055', '#00cccc', '#cc00cc']
-                }}]
-            }};
-            pieChart.setOption(pieOption);
-
-            // --- SİNEMATİK DÖNGÜ VE GEÇİŞ MOTORU ---
-            function runCinematicFrame() {{
-                if (monthsSequence.length === 0) return;
-                const activeMonth = monthsSequence[currentIndex];
-                const currentData = timelineMatrix[activeMonth];
-
-                // Başlık Panel Güncellemesi
-                document.getElementById('active-period').innerText = activeMonth;
-                
-                // Grafik Veri Enjeksiyonları
-                barChart.setOption({{
-                    yAxis: {{ data: currentData.firms }},
-                    series: [{{ data: currentData.sermaye }}]
-                }});
-                
-                pieChart.setOption({{
-                    series: [{{ data: currentData.pie }}]
-                }});
-                
-                // Endeksi İlerlet (Döngü Başa Saracak Şekilde)
-                currentIndex = (currentIndex + 1) % monthsSequence.length;
-            }}
-
-            // 2.5 Saniyede Bir Yumuşak Dönüşüm Akışı
-            setInterval(runCinematicFrame, 2500);
-            runCinematicFrame(); // İlk kareyi anında tetikle
-
-            // Ekran Boyut Adaptörü
-            window.addEventListener('resize', function() {{
-                barChart.resize();
-                pieChart.resize();
-            }});
-        </script>
-    </body>
-    </html>
-    """
-
-    # Gelişmiş HTML WebGL Yapısını Ekrana Basıyoruz
-    st.components.v1.html(cinematic_loop_html, height=590, scrolling=False)
+# --- SAYFA 3: HAM VERİ ---
+elif page == "3. Ham Veri":
+    st.header("📋 Ham Veri Havuzu")
+    tabs = st.tabs(TARGET_TABS)
+    for i, tab_ui in enumerate(tabs):
+        with tab_ui:
+            tab_name = TARGET_TABS[i]
+            df_list = data_pool[tab_name]
+            if df_list:
+                combined_df = pd.concat(df_list, ignore_index=True).drop_duplicates()
+                raw_display = combined_df.copy()
+                raw_display['FIYAT'] = raw_display['FIYAT'].map('{:,.2f} $'.format)
+                raw_display['TOPLAM_SERMAYE'] = raw_display['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
+                drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in raw_display.columns]
+                if drop_cols:
+                    raw_display = raw_display.drop(columns=drop_cols)
+                st.dataframe(raw_display, use_container_width=True, hide_index=True)
+            else:
+                st.warning(f"Bu sekme ({tab_name}) için veri bulunamadı.")
