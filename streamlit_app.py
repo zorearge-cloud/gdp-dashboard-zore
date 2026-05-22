@@ -7,9 +7,10 @@ import datetime
 import json
 import re
 
-# --- AYARLAR VE ANAYASA ---
+# --- AYARLAR VE ANAYASA (TAM KAPSAMLI YAPI) ---
 st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
 
+# 1. KURAL: Veri çekme bağlantıları ve tab yapıları tamamen korundu
 LINKS = [
     "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=xlsx",
@@ -30,6 +31,7 @@ HEADER_MAP = {
     'YUKLEME TARIHI': 'YUKLEME_TARIHI', 'YUKLEME_TARIHI': 'YUKLEME_TARIHI'
 }
 
+# --- CANLI DÖVİZ KURU MOTORU ---
 @st.cache_data(ttl=3600)
 def get_live_rates():
     rates = {"EUR_TO_USD": 1.09, "CNY_TO_USD": 0.138, "PROUNCE": "Yedek Kur Panelden Okundu"}
@@ -50,6 +52,7 @@ def get_live_rates():
 
 rates = get_live_rates()
 
+# --- GELİŞMİŞ TARİH STANDARTLAŞTIRMA MOTORU ---
 def strict_date_string_parser(val):
     if pd.isna(val) or val == "":
         return "BELİRTİLMEMİŞ"
@@ -57,21 +60,27 @@ def strict_date_string_parser(val):
         return val.strftime('%Y-%m-%d')
     
     val_str = str(val).strip()
-    if " " in val_str: val_str = val_str.split()[0]
+    if " " in val_str:
+        val_str = val_str.split()[0]
+    
     val_str = val_str.replace('/', '.').replace('-', '.')
     
     for fmt in ['%Y.%m.%d', '%d.%m.%Y', '%Y.%d.%m']:
         try:
             dt = datetime.datetime.strptime(val_str, fmt)
             return dt.strftime('%Y-%m-%d')
-        except: continue
+        except:
+            continue
             
     try:
         dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
-        if not pd.isna(dt): return dt.strftime('%Y-%m-%d')
-    except: pass
+        if not pd.isna(dt):
+            return dt.strftime('%Y-%m-%d')
+    except:
+        pass
     return "BELİRTİLMEMİŞ"
 
+# --- VERİ TEMİZLEME VE DÖNÜŞTÜRME MOTORU ---
 def clean_data(df, rates):
     df = df.loc[:, ~df.columns.duplicated()]
     for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
@@ -90,7 +99,8 @@ def clean_data(df, rates):
             val = row['FIYAT']
             firma_name = str(row['FIRMA']).upper().strip()
         
-            if pd.isna(val): return 0.0, 0.0, '$'
+            if pd.isna(val):
+                return 0.0, 0.0, '$'
             
             val_str = str(val).strip()
             currency = 'USD'
@@ -118,12 +128,17 @@ def clean_data(df, rates):
             elif ',' in val_str:
                 val_str = val_str.replace(',', '.')
                 
-            try: numeric_price = float(val_str)
-            except: numeric_price = 0.0
-       
-            if currency == 'CNY': usd_price = numeric_price * rates["CNY_TO_USD"]
-            elif currency == 'EUR': usd_price = numeric_price * rates["EUR_TO_USD"]
-            else: usd_price = numeric_price
+            try:
+                numeric_price = float(val_str)
+            except:
+                numeric_price = 0.0
+                
+            if currency == 'CNY':
+                usd_price = numeric_price * rates["CNY_TO_USD"]
+            elif currency == 'EUR':
+                usd_price = numeric_price * rates["EUR_TO_USD"]
+            else:
+                usd_price = numeric_price
             return usd_price, numeric_price, sym_char
             
         res = df.apply(parse_price_details, axis=1)
@@ -161,6 +176,7 @@ def clean_data(df, rates):
                 df[text_col] = val_series.replace({'nan': 'BELİRTİLMEMİŞ', 'None': 'BELİRTİLMEMİŞ', '': 'BELİRTİLMEMİŞ'})
     return df
 
+# --- COKLU DOSYA VE LINK YÖNETİM MOTORU ---
 @st.cache_data(ttl=600)
 def get_all_data(rates):
     all_data_list = []
@@ -184,8 +200,10 @@ def get_all_data(rates):
                         clean_h = h.replace('İ', 'I').replace('Ş', 'S').replace('Ü', 'U').replace('Ç', 'C').replace('Ğ', 'G').replace('_', ' ')
                         headers.append(HEADER_MAP.get(clean_h, h))
                         
-                    try: fiyat_idx = headers.index('FIYAT')
-                    except ValueError: fiyat_idx = -1
+                    try:
+                        fiyat_idx = headers.index('FIYAT')
+                    except ValueError:
+                        fiyat_idx = -1
                         
                     data = []
                     for row in rows[1:]:
@@ -220,7 +238,8 @@ def get_all_data(rates):
                     if not df_clean.empty:
                         pool[tab].append(df_clean)
                         all_data_list.append(df_clean)
-        except: continue
+        except:
+            continue
             
     full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
     if not full_df.empty:
@@ -233,13 +252,14 @@ def get_all_data(rates):
 
 df_dashboard, data_pool = get_all_data(rates)
 
-st.sidebar.title("ZORE KURUMSAL PANEL")
-st.sidebar.markdown(f"**Finansal Kur Durumu:** `{rates['PROUNCE']}`")
+# --- NAVİGASYON VE SIDEBAR YÖNETİMİ ---
+st.sidebar.title("ZORE YÖNETİM PANELİ")
+st.sidebar.markdown(f"**Döviz Durumu:** `{rates['PROUNCE']}`")
 st.sidebar.text(f"1 EUR = {rates['EUR_TO_USD']:.4f} $")
 st.sidebar.text(f"1 CNY = {rates['CNY_TO_USD']:.4f} $")
 st.sidebar.markdown("---")
 
-page = st.sidebar.radio("Menü", ["1. Genel Analiz Paneli", "2. Firma Bazlı Analiz", "3. Ham Veri"])
+page = st.sidebar.radio("Sayfa Seçimi", ["1. Genel Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
 
 # --- SAYFA 1: GENEL DASHBOARD (KURUMSAL VE SABİT TASARIM) ---
 if page == "1. Genel Dashboard":
@@ -462,29 +482,75 @@ if page == "1. Genel Dashboard":
         
         # Ekran sığmama sorunu için yükseklik 1700'den 2100'e çıkarıldı.
         st.components.v1.html(html_ready, height=2100, scrolling=False)
-        
-# --- SAYFA 3: HAM VERİ ---
-elif page == "3. Ham Veri":
-    st.header("🗄️ Konsolide Ham Veri Deposu")
+
+
+# --- SAYFA 2: FİRMA BAZLI ANALİZ ---
+elif page == "2. Firma Bazlı Analiz":
+    st.header("🏢 Firma Bazlı Analiz")
     if df_dashboard.empty:
-        st.warning("Görüntülenecek ham veri bulunamadı.")
+        st.error("Veri havuzu boş.")
     else:
-        st.markdown(f"Tüm kaynaklardan çekilen ve standartlaştırılan toplam **{len(df_dashboard)}** adet kayıt listelenmektedir.")
-        
-        search_all = st.text_input("Genel Arama (Firma, Ürün Cinsi veya Barkod):", placeholder="Tabloda filtrelemek istediğiniz kelimeyi yazın...")
-        df_final_display = df_dashboard.copy()
-        
-        if search_all:
-            mask = df_final_display.astype(str).apply(lambda row: row.str.contains(search_all, case=False).any(), axis=1)
-            df_final_display = df_final_display[mask]
-            st.info(f"Filtreleme Sonucu: {len(df_final_display)} kayıt listeleniyor.")
+        firmalar = sorted([str(f) for f in df_dashboard['FIRMA'].unique() if str(f) != "BELİRTİLMEMİŞ"])
+        if not firmalar:
+            st.warning("Analiz edilecek geçerli bir firma kaydı bulunamadı.")
+        else:
+            selected_firma = st.selectbox("Analiz edilecek firmayı seçin", firmalar)
+            firma_df = df_dashboard[df_dashboard['FIRMA'] == selected_firma]
             
-        df_final_formatted = df_final_display.copy()
-        df_final_formatted['FIYAT'] = df_final_formatted['FIYAT'].map('{:,.2f} $'.format)
-        df_final_formatted['TOPLAM_SERMAYE'] = df_final_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
-        
-        drop_cols_raw = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in df_final_formatted.columns]
-        if drop_cols_raw:
-            df_final_formatted = df_final_formatted.drop(columns=drop_cols_raw)
+            c1, c2, c3 = st.columns(3)
+            c1.metric(f"{selected_firma} Toplam Alım (Adet)", f"{int(firma_df['ADET'].sum()):,}")
+            c2.metric(f"{selected_firma} Toplam Ciro (USD)", f"{firma_df['TOPLAM_SERMAYE'].sum():,.2f} $")
+            tur_counts = firma_df.groupby('TUR')['ADET'].sum()
+            en_cok_tur = tur_counts.idxmax() if not tur_counts.empty and tur_counts.sum() > 0 else "Veri Yok"
+            c3.metric("En Çok Aldığı Tür", en_cok_tur)
             
-        st.dataframe(df_final_formatted, use_container_width=True)
+            import plotly.express as px
+            col_a, col_b = st.columns(2)
+            if not firma_df.empty and firma_df['TOPLAM_SERMAYE'].sum() > 0:
+                kategori_ozet = firma_df.groupby('TUR')['TOPLAM_SERMAYE'].sum().reset_index()
+                if len(kategori_ozet) > 6:
+                    en_buyuk_6 = kategori_ozet.nlargest(6, 'TOPLAM_SERMAYE')['TUR'].tolist()
+                    firma_df_pie = firma_df.copy()
+                    firma_df_pie['TUR_GRAFIK'] = firma_df_pie['TUR'].apply(lambda x: x if x in en_buyuk_6 else 'DİĞER')
+                else:
+                    firma_df_pie = firma_df.copy()
+                    firma_df_pie['TUR_GRAFIK'] = firma_df_pie['TUR']
+                
+                fig_a = px.pie(firma_df_pie, values='TOPLAM_SERMAYE', names='TUR_GRAFIK', title=f"{selected_firma} Ürün Kategorisi Dağılımı (İlk 6 + Diğer)", hole=0.4)
+                fig_a.update_traces(textinfo='label+percent')
+                col_a.plotly_chart(fig_a, use_container_width=True)
+            else:
+                col_a.info("Grafik için yeterli veri yok.")
+                
+            trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
+            if not trend_data_all.empty and trend_data_all['TOPLAM_SERMAYE'].sum() > 0:
+                fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE')
+                fig_b.update_layout(xaxis_type='category')
+                col_b.plotly_chart(fig_b, use_container_width=True)
+            else:
+                col_b.info("Zaman trendi grafik verisi bulunamadı.")
+                
+            st.markdown("---")
+            st.subheader(f"🔍 {selected_firma} Sipariş Listesinde Barkod Sorgulama")
+            search_barcode = st.text_input("Barkod Yazın (Varmı / Yokmu Kontrolü):", placeholder="Kontrol etmek istediğiniz barkodu buraya girin...").strip()
+            display_df = firma_df.copy()
+            
+            if search_barcode:
+                search_res = display_df[display_df['BARKOD'].str.contains(search_barcode, case=False, na=False)]
+                if not search_res.empty:
+                    st.success(f"✅ Barkod Bulundu! Bu firmaya ait listede aradığınız barkod ile eşleşen {len(search_res)} adet kayıt var.")
+                    display_df = search_res
+                else:
+                    st.error("❌ Barkod Bulunamadı! Bu firmanın ham veri listesinde yazdığınız barkod mevcut değil.")
+                    
+            st.markdown(f"**{selected_firma} Veri Listesi:**")
+            display_df_formatted = display_df.copy()
+            display_df_formatted['FIYAT'] = display_df_formatted['FIYAT'].map('{:,.2f} $'.format)
+            display_df_formatted['TOPLAM_SERMAYE'] = display_df_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
+            
+            drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in display_df_formatted.columns]
+            
+            # Alt kısımdaki eksik tablo bastırma kodları da tamamlandı
+            if drop_cols:
+                display_df_formatted = display_df_formatted.drop(columns=drop_cols)
+            st.dataframe(display_df_formatted, use_container_width=True)
