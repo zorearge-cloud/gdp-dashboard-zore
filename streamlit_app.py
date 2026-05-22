@@ -8,7 +8,7 @@ import json
 import re
 
 # --- AYARLAR VE ANAYASA (TAM KAPSAMLI YAPI) ---
-st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
+st.set_page_config(layout="wide", page_title="ZORE Siber Veri Paneli")
 
 # 1. KURAL: Veri çekme bağlantıları ve tab yapıları tamamen korundu
 LINKS = [
@@ -31,7 +31,7 @@ HEADER_MAP = {
     'YUKLEME TARIHI': 'YUKLEME_TARIHI', 'YUKLEME_TARIHI': 'YUKLEME_TARIHI'
 }
 
-# --- CANLI DÖVİZ KURU MOTORU ---
+# --- CANLI DÖVİZ KURU MOTORU (SİBER HAVUZDAN ÇEKİLİR) ---
 @st.cache_data(ttl=3600)
 def get_live_rates():
     rates = {"EUR_TO_USD": 1.09, "CNY_TO_USD": 0.138, "PROUNCE": "Yedek Kur Panelden Okundu"}
@@ -252,17 +252,22 @@ def get_all_data(rates):
 
 df_dashboard, data_pool = get_all_data(rates)
 
+# Sütun Sıralama Düzeltmesi: YUKLEME_TARIHI sütununu en son sütun olacak şekilde taşıyoruz
+if not df_dashboard.empty and 'YUKLEME_TARIHI' in df_dashboard.columns:
+    cols = [c for c in df_dashboard.columns if c != 'YUKLEME_TARIHI'] + ['YUKLEME_TARIHI']
+    df_dashboard = df_dashboard[cols]
+
 # --- NAVİGASYON VE SIDEBAR YÖNETİMİ ---
-st.sidebar.title("ZORE YÖNETİM PANELİ")
+st.sidebar.title("ZORE SİBER PANEL")
 st.sidebar.markdown(f"**Döviz Durumu:** `{rates['PROUNCE']}`")
 st.sidebar.text(f"1 EUR = {rates['EUR_TO_USD']:.4f} $")
 st.sidebar.text(f"1 CNY = {rates['CNY_TO_USD']:.4f} $")
 st.sidebar.markdown("---")
 
-page = st.sidebar.radio("Sayfa Seçimi", ["1. Genel Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
+page = st.sidebar.radio("Sayfa Seçimi", ["1. Siber Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
 
-# --- SAYFA 1: GENEL DASHBOARD (4 GRAFİKLİ OPTİMİZE YAPI) ---
-if page == "1. Genel Dashboard":
+# --- SAYFA 1: SİBER DASHBOARD (4 GRAFİKLİ 2x2 GRID TASARIMI) ---
+if page == "1. Siber Dashboard":
     st.header("📊 ZORE Sipariş Takip Kontrol Paneli")
     
     if df_dashboard.empty:
@@ -301,7 +306,7 @@ if page == "1. Genel Dashboard":
                 "c3_data": c3_data, "c4_data": c4_data
             }
 
-        # HTML VE JAVASCRIPT TEMPLATE (PERFORMANS İÇİN SADECE 4 GRAFİK)
+        # HTML VE JAVASCRIPT TEMPLATE
         html_template = """
         <!DOCTYPE html>
         <html>
@@ -315,15 +320,16 @@ if page == "1. Genel Dashboard":
                 .matrix-subtitle { color: #00ff66; font-size: 15px; margin-top: 10px; font-weight: bold; letter-spacing: 1px; }
                 .period-badge { color: #00f3ff; background: rgba(0, 243, 255, 0.1); padding: 4px 15px; border-radius: 4px; border: 1px solid #00f3ff; font-family: monospace; font-size: 16px; margin-left: 10px; box-shadow: 0 0 8px #00f3ff; }
                 
-                .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 20px; }
+                .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 20px; grid-template-rows: auto auto; }
                 
                 .panel { 
                     background: rgba(2, 6, 19, 0.9);
                     border: 2px solid #00f3ff; 
                     border-radius: 12px; 
                     box-shadow: 0 0 20px rgba(0, 243, 255, 0.5), inset 0 0 15px rgba(0, 243, 255, 0.2);
-                    height: 420px; 
-                    padding: 15px; 
+                    height: 450px; 
+                    padding: 20px;
+                    overflow: visible;
                 }
             </style>
         </head>
@@ -361,7 +367,7 @@ if page == "1. Genel Dashboard":
                     return {
                         title: { 
                             text: titleText, 
-                            textStyle: { color: '#ffffff', fontSize: 14, fontWeight: 'bold' },
+                            textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' },
                             left: 'center', top: '2%'
                         },
                         tooltip: { trigger: 'item', backgroundColor: 'rgba(0,0,0,0.8)', textStyle: { color: '#fff' } },
@@ -378,8 +384,11 @@ if page == "1. Genel Dashboard":
                                     shadowBlur: 15, 
                                     shadowColor: '#00f3ff' 
                                 },
-                                label: { color: '#fff', fontSize: 12, formatter: '{b}\\n{d}%', fontWeight: 'bold' },
-                                labelLine: { lineStyle: { width: 2 } },
+                                label: { 
+                                    color: '#fff', fontSize: 13, formatter: '{b}\\n{d}%', fontWeight: 'bold',
+                                    position: 'outside', textShadowBlur: 8, textShadowColor: '#00f3ff'
+                                },
+                                labelLine: { lineStyle: { width: 2 }, length: 20, length2: 15 },
                                 data: chartData,
                                 startAngle: 90,
                                 animationDuration: 1000
@@ -430,7 +439,7 @@ if page == "1. Genel Dashboard":
         """
         
         html_ready = html_template.replace("__TIMELINE_MATRIX__", json.dumps(timeline_matrix)).replace("__MONTHS_SEQUENCE__", json.dumps(months_sequence))
-        st.components.v1.html(html_ready, height=1100, scrolling=False)
+        st.components.v1.html(html_ready, height=1200, scrolling=False)
 
 
 # --- SAYFA 2: FİRMA BAZLI ANALİZ ---
