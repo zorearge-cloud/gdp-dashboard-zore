@@ -1,69 +1,16 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import requests
 import io
 import openpyxl
-import re
 import datetime
 import json
-
-# --- SİNEMATİK MOTOR: SAVAŞ ODASI ---
-def render_cinematic_war_room(df):
-    """
-    Bu fonksiyon dashboard'un en üstüne yerleştirilecek sinematik modüldür.
-    Statik grafiklerini alır ve onları modern, hareketli bir veri akışına dönüştürür.
-    """
-    st.markdown("""
-    <style>
-        .cinematic-wrapper { background: #060913; padding: 20px; border-radius: 15px; border: 1px solid #00f3ff; }
-        .glow-text { color: #00f3ff; text-shadow: 0 0 10px #00f3ff; font-family: monospace; }
-    </style>
-    <div class="cinematic-wrapper">
-        <h1 class="glow-text">🌐 ZORE KİNETİK VERİ AKIŞI</h1>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Veriyi sinematik yapıya hazırla
-    firms = df.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-    
-    # ECharts tabanlı sinematik bar grafiği
-    html_code = f"""
-    <div id="main" style="width: 100%; height: 400px;"></div>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-    <script>
-        var chart = echarts.init(document.getElementById('main'));
-        var option = {{
-            backgroundColor: 'transparent',
-            xAxis: {{ type: 'category', data: {firms['FIRMA'].tolist()}, axisLabel: {{ color: '#00f3ff', rotate: 45 }} }},
-            yAxis: {{ type: 'value', axisLabel: {{ color: '#00f3ff' }} }},
-            series: [{{
-                data: {firms['TOPLAM_SERMAYE'].tolist()},
-                type: 'bar',
-                itemStyle: {{ color: '#00f3ff', shadowBlur: 10, shadowColor: '#00f3ff' }},
-                animationDuration: 3000
-            }}]
-        }};
-        chart.setOption(option);
-    </script>
-    """
-    st.components.v1.html(html_code, height=450)
-
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import requests
-import io
-import openpyxl
 import re
-import datetime
 
 # --- AYARLAR VE ANAYASA (TAM KAPSAMLI YAPI) ---
 st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
 
-# 1. KURAL: Veri çekme bağlantıları ve tab yapıları korunacak
+# 1. KURAL: Veri çekme bağlantıları ve tab yapıları tamamen korundu
 LINKS = [
     "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=xlsx",
@@ -73,9 +20,9 @@ LINKS = [
 ]
 
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
+
 EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', 'ADET', 'FIYAT', 'YUKLEME_TARIHI', 'NAKLİYE_TÜRÜ']
 
-# Kolon kaymalarını sıfırlayan akıllı haritalama sözlüğü
 HEADER_MAP = {
     'SIPARIS TARIHI': 'SIPARIS_TARIHI', 'SIPARIS_TARIHI': 'SIPARIS_TARIHI',
     'FIRMA': 'FIRMA', 'TUR': 'TUR', 'BARKOD': 'BARKOD',
@@ -104,24 +51,19 @@ def get_live_rates():
 
 rates = get_live_rates()
 
-# --- GELİŞMİŞ TARİH STANDARTLAŞTIRMA MOTORU (SAATLERİ VE NaT HATASINI SİLER) ---
+# --- GELİŞMİŞ TARİH STANDARTLAŞTIRMA MOTORU ---
 def strict_date_string_parser(val):
     if pd.isna(val) or val == "":
         return "BELİRTİLMEMİŞ"
-    
-    # openpyxl veya pandas hücreyi otomatik datetime objesi yaptıysa saat bilgisini ezerek temizliyoruz
     if hasattr(val, 'strftime'):
         return val.strftime('%Y-%m-%d')
-        
-    # Metin olarak gelen verilerde saat imzası varsa (00:00:00 gibi) tamamen buduyoruz
+    
     val_str = str(val).strip()
     if " " in val_str:
         val_str = val_str.split()[0]
-        
-    # Farklı ayraçları standart nokta karakterine çekiyoruz
+    
     val_str = val_str.replace('/', '.').replace('-', '.')
     
-    # Olası tüm tarih varyasyonlarını tek tek süzgeçten geçiriyoruz
     for fmt in ['%Y.%m.%d', '%d.%m.%Y', '%Y.%d.%m']:
         try:
             dt = datetime.datetime.strptime(val_str, fmt)
@@ -129,21 +71,17 @@ def strict_date_string_parser(val):
         except:
             continue
             
-    # Küresel fallback denemesi
     try:
         dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
         if not pd.isna(dt):
             return dt.strftime('%Y-%m-%d')
     except:
         pass
-        
     return "BELİRTİLMEMİŞ"
 
 # --- VERİ TEMİZLEME VE DÖNÜŞTÜRME MOTORU ---
 def clean_data(df, rates):
     df = df.loc[:, ~df.columns.duplicated()]
-    
-    # Tarih kolonlarını saatsiz ve temiz metin formatına çekiyoruz
     for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
         if col in df.columns:
             df[col] = df[col].apply(strict_date_string_parser)
@@ -154,8 +92,7 @@ def clean_data(df, rates):
     
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
-    
-    # Çoklu Para Birimi ve Kur Dönüşüm Yönetimi (Tüm Gözden Kaçan Firmalar İçin Güçlendirildi)
+        
     if 'FIYAT' in df.columns and 'FIRMA' in df.columns:
         def parse_price_details(row):
             val = row['FIYAT']
@@ -167,18 +104,16 @@ def clean_data(df, rates):
             currency = 'USD'
             sym_char = '$'
             
-            # Genişletilmiş döviz sembol listesi
             yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元', 'CHINESE']
             euro_symbols = ['€', 'EUR', 'EURO']
             
-            # Firma isminden, hücre içeriğinden veya gizli karakter kodlarından yakalama mantığı
             if 'CATHY' in firma_name or 'AECOOLY' in firma_name or any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
                 currency = 'CNY'
                 sym_char = '¥'
             elif any(sym in val_str for sym in euro_symbols) or any(sym in val_str.upper() for sym in euro_symbols):
                 currency = 'EUR'
                 sym_char = '€'
-            
+                
             for clean_target in yuan_symbols + euro_symbols + ['$', 'usd', 'USD']:
                 val_str = val_str.replace(clean_target, '')
             val_str = val_str.strip()
@@ -196,59 +131,47 @@ def clean_data(df, rates):
             except:
                 numeric_price = 0.0
                 
-            # Canlı kurlarla dolara çevrim adımı
             if currency == 'CNY':
                 usd_price = numeric_price * rates["CNY_TO_USD"]
             elif currency == 'EUR':
                 usd_price = numeric_price * rates["EUR_TO_USD"]
             else:
                 usd_price = numeric_price
-                
             return usd_price, numeric_price, sym_char
-
+            
         res = df.apply(parse_price_details, axis=1)
-        # Tüm ara yüzlerde ve raporlarda ANNY firmasında olduğu gibi net USD ($) basılması sağlanıyor
         df['FIYAT'] = [r[0] for r in res]
         df['ORIJINAL_FIYAT'] = [r[1] for r in res]
         df['PARA_BIRIMI'] = [r[2] for r in res]
     else:
         df['ORIJINAL_FIYAT'] = df['FIYAT'] if 'FIYAT' in df.columns else 0.0
         df['PARA_BIRIMI'] = '$'
-    
+        
     df['TOPLAM_SERMAYE'] = df['ADET'] * df['FIYAT']
     
     for text_col in ['FIRMA', 'TUR', 'MALIN CINSI', 'BARKOD', 'NAKLİYE_TÜRÜ']:
         if text_col in df.columns:
             if text_col == 'BARKOD':
                 def strict_barcode_clean(x):
-                    if pd.isna(x):
-                        return "BELİRTİLMEMİŞ"
+                    if pd.isna(x): return "BELİRTİLMEMİŞ"
                     if isinstance(x, (int, float)):
                         try:
-                            if x == int(x):
-                                return str(int(x))
+                            if x == int(x): return str(int(x))
                             return str(x)
-                        except:
-                            return str(x)
+                        except: return str(x)
                     s = str(x).strip()
-                    if s.endswith('.0'):
-                        s = s[:-2]
+                    if s.endswith('.0'): s = s[:-2]
                     if '.' in s:
                         try:
                             f = float(s)
-                            if f == int(f):
-                                return str(int(f))
-                        except:
-                            pass
-                    if s in ['nan', 'None', '']:
-                        return "BELİRTİLMEMİŞ"
+                            if f == int(f): return str(int(f))
+                        except: pass
+                    if s in ['nan', 'None', '']: return "BELİRTİLMEMİŞ"
                     return s
-                
                 df['BARKOD'] = df['BARKOD'].apply(strict_barcode_clean)
             else:
                 val_series = df[text_col].fillna("BELİRTİLMEMİŞ").astype(str).str.strip()
                 df[text_col] = val_series.replace({'nan': 'BELİRTİLMEMİŞ', 'None': 'BELİRTİLMEMİŞ', '': 'BELİRTİLMEMİŞ'})
-            
     return df
 
 # --- COKLU DOSYA VE LINK YÖNETİM MOTORU ---
@@ -260,24 +183,21 @@ def get_all_data(rates):
     for link in LINKS:
         try:
             response = requests.get(link, timeout=10)
-            if response.status_code != 200:
-                continue
+            if response.status_code != 200: continue
             
             wb = openpyxl.load_workbook(io.BytesIO(response.content), data_only=True)
-            
             for tab in TARGET_TABS:
                 if tab in wb.sheetnames:
                     sheet = wb[tab]
                     rows = list(sheet.iter_rows(values_only=False))
-                    if not rows:
-                        continue
+                    if not rows: continue
                     
                     raw_headers = [str(cell.value).strip().upper() if cell.value is not None else '' for cell in rows[0]]
                     headers = []
                     for h in raw_headers:
                         clean_h = h.replace('İ', 'I').replace('Ş', 'S').replace('Ü', 'U').replace('Ç', 'C').replace('Ğ', 'G').replace('_', ' ')
                         headers.append(HEADER_MAP.get(clean_h, h))
-                    
+                        
                     try:
                         fiyat_idx = headers.index('FIYAT')
                     except ValueError:
@@ -285,56 +205,45 @@ def get_all_data(rates):
                         
                     data = []
                     for row in rows[1:]:
-                        if all(cell.value is None for cell in row):
-                            continue
-                            
+                        if all(cell.value is None for cell in row): continue
                         row_data = []
                         for idx, cell in enumerate(row):
-                            if idx >= len(headers): 
-                                break
+                            if idx >= len(headers): break
                             val = cell.value
-                            
-                            # Excel hücre biçimlendirmesinden (Format) Yuan veya Euro tespiti (LCID tabanlı ek koruma)
                             if idx == fiyat_idx and val is not None:
                                 fmt = str(cell.number_format).upper()
                                 if any(x in fmt for x in ['¥', '￥', 'CNY', '元', '804', '2052', 'E01']):
                                     val = f"¥{val}"
                                 elif any(x in fmt for x in ['€', 'EUR', '40C']):
                                     val = f"€{val}"
-                                    
                             row_data.append(val)
-                            
                         while len(row_data) < len(headers):
                             row_data.append(None)
-                            
                         data.append(row_data)
                         
                     df = pd.DataFrame(data, columns=headers)
-                    
                     tab_lower = tab.lower()
                     prefix = ""
                     if "has" in tab_lower: prefix = "HAS "
                     elif "meh" in tab_lower: prefix = "MEH "
                     elif "ist" in tab_lower: prefix = "IST "
-                        
+                    
                     if "air" in tab_lower: df['NAKLİYE_TÜRÜ'] = prefix + "HAVA"
                     elif "sea" in tab_lower: df['NAKLİYE_TÜRÜ'] = prefix + "DENİZ"
                     else: df['NAKLİYE_TÜRÜ'] = prefix + "BELİRTİLMEMİŞ"
-                        
+                    
                     df_clean = clean_data(df, rates)
                     if not df_clean.empty:
                         pool[tab].append(df_clean)
                         all_data_list.append(df_clean)
         except:
             continue
-    
+            
     full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
     if not full_df.empty:
         def get_clean_period(x):
-            if x == "BELİRTİLMEMİŞ" or len(x) < 7:
-                return "Bilinmeyen Dönem"
+            if x == "BELİRTİLMEMİŞ" or len(x) < 7: return "Bilinmeyen Dönem"
             return x[:7]
-            
         full_df['SIPARIS_AY'] = full_df['SIPARIS_TARIHI'].apply(get_clean_period)
         
     return full_df, pool
@@ -350,77 +259,210 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio("Sayfa Seçimi", ["1. Genel Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
 
-# --- SAYFA 1: GENEL DASHBOARD (8 GRAFİKLİ TAM YAPI) ---
+# --- SAYFA 1: GENEL DASHBOARD (SİBER SAVAŞ ODASI MATRİSİ) ---
 if page == "1. Genel Dashboard":
-    st.header("📊 Genel Dashboard")
+    st.header("📊 Genel Dashboard - Siber İzleme Merkezi")
     
     if df_dashboard.empty:
         st.error("Veri havuzunda işlenecek kayıt bulunamadı.")
     else:
+        # Üst Metrik Kartları (Orijinal yapı korunuyor)
         c1, c2, c3 = st.columns(3)
         c1.metric("Toplam Sipariş Adedi", f"{int(df_dashboard['ADET'].sum()):,}")
         c2.metric("Toplam Sermaye Yatırımı (USD)", f"{df_dashboard['TOPLAM_SERMAYE'].sum():,.2f} $")
         c3.metric("Çalışılan Firma Sayısı", df_dashboard['FIRMA'].nunique())
-
         st.markdown("---")
         
-        g1, g2 = st.columns(2)
-        top_sips = df_dashboard.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index()
-        fig1 = px.bar(top_sips, x='MALIN CINSI', y='ADET', title="1. En Çok Sipariş Edilen 10 Ürün (Adet)", color='ADET')
-        g1.plotly_chart(fig1, use_container_width=True)
+        # SİNEMATİK VERİ HAZIRLIĞI (ZAMAN MAKİNESİ ALGORİTMASI)
+        valid_df = df_dashboard[df_dashboard['SIPARIS_AY'] != "Bilinmeyen Dönem"].copy()
+        months_sequence = sorted(valid_df['SIPARIS_AY'].unique().tolist())
         
-        top_money = df_dashboard.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig2 = px.bar(top_money, x='MALIN CINSI', y='TOPLAM_SERMAYE', title="2. En Çok Sermaye Yatırılan 10 Ürün ($)", color='TOPLAM_SERMAYE')
-        g2.plotly_chart(fig2, use_container_width=True)
-
-        g3, g4 = st.columns(2)
-        top_firma = df_dashboard.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig3 = px.pie(top_firma, values='TOPLAM_SERMAYE', names='FIRMA', title="3. Harcama Yapılan İlk 10 Firma", hole=0.4)
-        fig3.update_traces(textinfo='label+percent')
-        g3.plotly_chart(fig3, use_container_width=True)
+        if not months_sequence:
+            months_sequence = ["Genel"]
+            
+        # Ön Hesaplamalar (Line grafikleri için)
+        top_5_firmalar = df_dashboard.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).index
+        trend_firma = df_dashboard[df_dashboard['FIRMA'].isin(top_5_firmalar)].groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().reset_index()
         
-        top_tur = df_dashboard.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig4 = px.pie(top_tur, values='TOPLAM_SERMAYE', names='TUR', title="4. Tür Bazlı Harcama Dağılımı (USD)", hole=0.4)
-        fig4.update_traces(textinfo='label+percent')
-        g4.plotly_chart(fig4, use_container_width=True)
-
-        df_2026 = df_dashboard[df_dashboard['SIPARIS_AY'].str.startswith('2026', na=False)].copy().sort_values('SIPARIS_AY')
-
-        g5, g6 = st.columns(2)
-        top_5_firmalar = df_2026.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).index
-        df_trend_firma = df_2026[df_2026['FIRMA'].isin(top_5_firmalar)]
-        trend_firma = df_trend_firma.groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
-        fig5 = px.line(trend_firma, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='FIRMA', title="5. Aylık Firma Harcama Trendi (En Büyük 5 Firma)", markers=True)
-        fig5.update_layout(xaxis_type='category') # Kural 2: Zaman ekseni kilitlenmesini engeller
-        g5.plotly_chart(fig5, use_container_width=True)
+        top_5_turler = df_dashboard.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).index
+        trend_tur = df_dashboard[df_dashboard['TUR'].isin(top_5_turler)].groupby(['SIPARIS_AY', 'TUR'])['TOPLAM_SERMAYE'].sum().reset_index()
         
-        top_5_turler = df_2026.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).index
-        df_trend_tur = df_2026[df_2026['TUR'].isin(top_5_turler)]
-        trend_tur = df_trend_tur.groupby(['SIPARIS_AY', 'TUR'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
-        fig6 = px.line(trend_tur, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='TUR', title="6. Aylık Tür Harcama Trendi (En Büyük 5 Tür)", markers=True)
-        fig6.update_layout(xaxis_type='category')
-        g6.plotly_chart(fig6, use_container_width=True)
-
-        g7, g8 = st.columns(2)
-        trend_total = df_2026.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
-        fig7 = px.line(trend_total, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title="7. Aylık Toplam Sermaye Akışı ($)", markers=True)
-        fig7.update_layout(xaxis_type='category')
-        g7.plotly_chart(fig7, use_container_width=True)
+        trend_total = df_dashboard.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
         
-        df_barkod_temiz = df_dashboard[(df_dashboard['BARKOD'] != "BELİRTİLMEMİŞ") & (df_dashboard['BARKOD'].str.strip() != "")]
-        top_barcode = df_barkod_temiz.groupby('BARKOD').agg({'ADET': 'sum', 'MALIN CINSI': 'first'}).nlargest(10, 'ADET').reset_index()
-        fig8 = px.bar(top_barcode, x='MALIN CINSI', y='ADET', title="8. Barkod Bazlı Top 10 Ürün (Gerçek Barkodlar)", text='BARKOD', color='ADET')
-        g8.plotly_chart(fig8, use_container_width=True)
+        timeline_matrix = {}
+        for month in months_sequence:
+            # İlgili aya kadar olan kümeli veri (Gerçekçi Bar Yarışı için)
+            df_cum = df_dashboard[df_dashboard['SIPARIS_AY'] <= month]
+            
+            # 1. Top 10 Ürün (Adet)
+            c1_df = df_cum.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index().iloc[::-1]
+            
+            # 2. Top 10 Ürün ($)
+            c2_df = df_cum.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index().iloc[::-1]
+            
+            # 3. İlk 10 Firma Harcama
+            c3_df = df_cum.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
+            c3_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": row['FIRMA']} for _, row in c3_df.iterrows()]
+            
+            # 4. Tür Bazlı Harcama
+            c4_df = df_cum.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
+            c4_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": row['TUR']} for _, row in c4_df.iterrows()]
+            
+            # 8. Barkod Bazlı
+            df_barkod = df_cum[(df_cum['BARKOD'] != "BELİRTİLMEMİŞ") & (df_cum['BARKOD'].str.strip() != "")]
+            c8_df = df_barkod.groupby('BARKOD').agg({'ADET': 'sum'}).nlargest(10, 'ADET').reset_index().iloc[::-1]
+            
+            # 5, 6, 7 Line Chart (Sadece o aya kadar olan zaman çizelgesi)
+            curr_months = [m for m in months_sequence if m <= month]
+            
+            c5_series = []
+            for f in top_5_firmalar:
+                f_data = trend_firma[trend_firma['FIRMA'] == f]
+                data = [f_data[f_data['SIPARIS_AY'] == m]['TOPLAM_SERMAYE'].sum() if m in f_data['SIPARIS_AY'].values else 0 for m in curr_months]
+                c5_series.append({"name": f, "type": "line", "smooth": True, "showSymbol": False, "data": [round(x,2) for x in data]})
+                
+            c6_series = []
+            for t in top_5_turler:
+                t_data = trend_tur[trend_tur['TUR'] == t]
+                data = [t_data[t_data['SIPARIS_AY'] == m]['TOPLAM_SERMAYE'].sum() if m in t_data['SIPARIS_AY'].values else 0 for m in curr_months]
+                c6_series.append({"name": t, "type": "line", "smooth": True, "showSymbol": False, "data": [round(x,2) for x in data]})
+                
+            c7_data = [round(trend_total[trend_total['SIPARIS_AY'] == m]['TOPLAM_SERMAYE'].sum(), 2) if m in trend_total['SIPARIS_AY'].values else 0 for m in curr_months]
+            
+            timeline_matrix[month] = {
+                "c1_names": c1_df['MALIN CINSI'].tolist(), "c1_vals": c1_df['ADET'].tolist(),
+                "c2_names": c2_df['MALIN CINSI'].tolist(), "c2_vals": c2_df['TOPLAM_SERMAYE'].tolist(),
+                "c3_data": c3_data,
+                "c4_data": c4_data,
+                "c5_series": c5_series,
+                "c6_series": c6_series,
+                "c7_months": curr_months, "c7_data": c7_data,
+                "c8_names": c8_df['BARKOD'].tolist(), "c8_vals": c8_df['ADET'].tolist(),
+            }
+
+        # HTML VE JAVASCRIPT TEMPLATE (SİBER EKRAN)
+        html_template = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+            <style>
+                body { background-color: #060913; font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 10px; overflow-x: hidden; }
+                .header-box { text-align: center; border-bottom: 1px dashed rgba(0, 243, 255, 0.3); padding-bottom: 10px; margin-bottom: 20px; }
+                .matrix-title { color: #ffffff; font-size: 20px; letter-spacing: 2px; margin: 0; }
+                .matrix-subtitle { color: #00f3ff; font-size: 14px; margin-top: 5px; font-weight: bold; }
+                .period-badge { color: #ffaa00; background: rgba(255,170,0,0.15); padding: 4px 12px; border-radius: 4px; font-family: monospace; font-size: 16px; margin-left: 10px; }
+                .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+                .panel { background: rgba(4, 11, 28, 0.7); border: 1px solid rgba(0, 243, 255, 0.15); border-radius: 8px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); height: 380px; padding: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="header-box">
+                <h2 class="matrix-title">🎬 ZORE CYBERSPACE ZAMAN MAKİNESİ (OTOMATİK SENKRON DÖNGÜ)</h2>
+                <div class="matrix-subtitle">
+                    SİSTEM DURUMU: <span style="color: #00ff66;">AKTİF</span> | 
+                    ZAMAN ÇİZELGESİ TARANIYOR: <span id="active-period" class="period-badge">BAŞLIYOR...</span>
+                </div>
+            </div>
+            
+            <div class="grid-container">
+                <div id="c1" class="panel"></div>
+                <div id="c2" class="panel"></div>
+                <div id="c3" class="panel"></div>
+                <div id="c4" class="panel"></div>
+                <div id="c5" class="panel"></div>
+                <div id="c6" class="panel"></div>
+                <div id="c7" class="panel"></div>
+                <div id="c8" class="panel"></div>
+            </div>
+
+            <script>
+                const timelineMatrix = __TIMELINE_MATRIX__;
+                const monthsSequence = __MONTHS_SEQUENCE__;
+                let currentIndex = 0;
+                
+                // Genel Tema Ayarları
+                const textStyle = { color: '#00f3ff', fontSize: 13, fontWeight: 'normal' };
+                const axisLabelStyle = { color: '#7a92b5', fontSize: 10, width: 120, overflow: 'truncate' };
+                const splitLineStyle = { lineStyle: { color: 'rgba(0,243,255,0.05)' } };
+
+                // Grafikleri Başlat
+                const charts = {
+                    c1: echarts.init(document.getElementById('c1')), c2: echarts.init(document.getElementById('c2')),
+                    c3: echarts.init(document.getElementById('c3')), c4: echarts.init(document.getElementById('c4')),
+                    c5: echarts.init(document.getElementById('c5')), c6: echarts.init(document.getElementById('c6')),
+                    c7: echarts.init(document.getElementById('c7')), c8: echarts.init(document.getElementById('c8'))
+                };
+
+                // Sabit Seçenekleri Ayarla
+                charts.c1.setOption({ title: { text: '1. En Çok Sipariş Edilen 10 Ürün (Adet)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '25%', right: '5%', bottom: '5%', top: '15%' }, xAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: {color:'#7a92b5'} }, yAxis: { type: 'category', axisLabel: axisLabelStyle } });
+                charts.c2.setOption({ title: { text: '2. En Çok Sermaye Yatırılan 10 Ürün ($)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '25%', right: '5%', bottom: '5%', top: '15%' }, xAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: {color:'#7a92b5'} }, yAxis: { type: 'category', axisLabel: axisLabelStyle } });
+                charts.c3.setOption({ title: { text: '3. Harcama Yapılan İlk 10 Firma (USD)', textStyle: textStyle }, tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: [20, 100], center: ['50%', '55%'], roseType: 'area', itemStyle: { borderRadius: 4 }, label: { color: '#7a92b5', fontSize: 10 } }] });
+                charts.c4.setOption({ title: { text: '4. Tür Bazlı Harcama Dağılımı (USD)', textStyle: textStyle }, tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['40%', '70%'], center: ['50%', '55%'], itemStyle: { borderRadius: 5, borderColor: '#060913', borderWidth: 2 }, label: { color: '#7a92b5', fontSize: 11 } }] });
+                charts.c5.setOption({ title: { text: '5. Aylık Firma Harcama Trendi (Top 5)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '10%', right: '5%', bottom: '10%', top: '20%' }, xAxis: { type: 'category', axisLabel: {color:'#7a92b5'} }, yAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: {color:'#7a92b5'} } });
+                charts.c6.setOption({ title: { text: '6. Aylık Tür Harcama Trendi (Top 5)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '10%', right: '5%', bottom: '10%', top: '20%' }, xAxis: { type: 'category', axisLabel: {color:'#7a92b5'} }, yAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: {color:'#7a92b5'} } });
+                charts.c7.setOption({ title: { text: '7. Aylık Toplam Sermaye Akışı ($)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '10%', right: '5%', bottom: '10%', top: '15%' }, xAxis: { type: 'category', axisLabel: {color:'#7a92b5'}, splitLine: splitLineStyle }, yAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: {color:'#7a92b5'} }, series: [{ type: 'line', smooth: true, areaStyle: { color: 'rgba(0, 243, 255, 0.2)' }, lineStyle: { color: '#00f3ff', width: 3 }, itemStyle: { color: '#00f3ff' } }] });
+                charts.c8.setOption({ title: { text: '8. Barkod Bazlı Top 10 Ürün (Adet)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '20%', right: '5%', bottom: '5%', top: '15%' }, xAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: {color:'#7a92b5'} }, yAxis: { type: 'category', axisLabel: axisLabelStyle } });
+
+                // Renk Paletleri
+                const gradBlue = new echarts.graphic.LinearGradient(0,0,1,0, [{offset:0, color:'#0033ff'}, {offset:1, color:'#00f3ff'}]);
+                const gradOrange = new echarts.graphic.LinearGradient(0,0,1,0, [{offset:0, color:'#ff5500'}, {offset:1, color:'#ffaa00'}]);
+                const gradPink = new echarts.graphic.LinearGradient(0,0,1,0, [{offset:0, color:'#9900ff'}, {offset:1, color:'#ff00ff'}]);
+
+                function updateDashboard() {
+                    const month = monthsSequence[currentIndex];
+                    const data = timelineMatrix[month];
+                    
+                    document.getElementById('active-period').innerText = (currentIndex === monthsSequence.length - 1) ? month + " (GENEL TOPLAM)" : month;
+
+                    charts.c1.setOption({ yAxis: { data: data.c1_names }, series: [{ type: 'bar', data: data.c1_vals, itemStyle: { color: gradBlue, borderRadius: [0,4,4,0] } }] });
+                    charts.c2.setOption({ yAxis: { data: data.c2_names }, series: [{ type: 'bar', data: data.c2_vals, itemStyle: { color: gradOrange, borderRadius: [0,4,4,0] } }] });
+                    charts.c3.setOption({ series: [{ data: data.c3_data }] });
+                    charts.c4.setOption({ series: [{ data: data.c4_data }] });
+                    charts.c5.setOption({ xAxis: { data: data.c7_months }, series: data.c5_series });
+                    charts.c6.setOption({ xAxis: { data: data.c7_months }, series: data.c6_series });
+                    charts.c7.setOption({ xAxis: { data: data.c7_months }, series: [{ data: data.c7_data }] });
+                    charts.c8.setOption({ yAxis: { data: data.c8_names }, series: [{ type: 'bar', data: data.c8_vals, itemStyle: { color: gradPink, borderRadius: [0,4,4,0] } }] });
+                }
+
+                function loopEngine() {
+                    updateDashboard();
+                    let delay = 2500; // Normal geçiş süresi
+                    if (currentIndex === monthsSequence.length - 1) {
+                        delay = 8000; // Son ayda (Genel Toplam) 8 saniye bekle
+                        currentIndex = 0; // Başa sar
+                    } else {
+                        currentIndex++;
+                    }
+                    setTimeout(loopEngine, delay);
+                }
+
+                // Döngüyü Başlat
+                setTimeout(loopEngine, 500);
+
+                // Ekran yeniden boyutlandırma
+                window.addEventListener('resize', () => {
+                    Object.values(charts).forEach(c => c.resize());
+                });
+            </script>
+        </body>
+        </html>
+        """
+        
+        html_ready = html_template.replace("__TIMELINE_MATRIX__", json.dumps(timeline_matrix)).replace("__MONTHS_SEQUENCE__", json.dumps(months_sequence))
+        
+        # Matrix arayüzünü Streamlit'e ekleme (Geniş ve uzun bir alan sağlıyoruz)
+        st.components.v1.html(html_ready, height=1700, scrolling=False)
+
 
 # --- SAYFA 2: FİRMA BAZLI ANALİZ ---
 elif page == "2. Firma Bazlı Analiz":
     st.header("🏢 Firma Bazlı Analiz")
-    
     if df_dashboard.empty:
         st.error("Veri havuzu boş.")
     else:
         firmalar = sorted([str(f) for f in df_dashboard['FIRMA'].unique() if str(f) != "BELİRTİLMEMİŞ"])
-        
         if not firmalar:
             st.warning("Analiz edilecek geçerli bir firma kaydı bulunamadı.")
         else:
@@ -430,13 +472,12 @@ elif page == "2. Firma Bazlı Analiz":
             c1, c2, c3 = st.columns(3)
             c1.metric(f"{selected_firma} Toplam Alım (Adet)", f"{int(firma_df['ADET'].sum()):,}")
             c2.metric(f"{selected_firma} Toplam Ciro (USD)", f"{firma_df['TOPLAM_SERMAYE'].sum():,.2f} $")
-            
             tur_counts = firma_df.groupby('TUR')['ADET'].sum()
             en_cok_tur = tur_counts.idxmax() if not tur_counts.empty and tur_counts.sum() > 0 else "Veri Yok"
             c3.metric("En Çok Aldığı Tür", en_cok_tur)
             
+            import plotly.express as px
             col_a, col_b = st.columns(2)
-            
             if not firma_df.empty and firma_df['TOPLAM_SERMAYE'].sum() > 0:
                 kategori_ozet = firma_df.groupby('TUR')['TOPLAM_SERMAYE'].sum().reset_index()
                 if len(kategori_ozet) > 6:
@@ -452,40 +493,36 @@ elif page == "2. Firma Bazlı Analiz":
                 col_a.plotly_chart(fig_a, use_container_width=True)
             else:
                 col_a.info("Grafik için yeterli veri yok.")
-            
-            # KESİN ÇÖZÜM: AECOOLY ve Diğer Firmaların Grafiğini Sabitleyen Alan
+                
             trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
             if not trend_data_all.empty and trend_data_all['TOPLAM_SERMAYE'].sum() > 0:
                 fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE')
-                fig_b.update_layout(xaxis_type='category') # Bozuk veya belirsiz tarih metinlerinin grafiği ezmesini önler
+                fig_b.update_layout(xaxis_type='category')
                 col_b.plotly_chart(fig_b, use_container_width=True)
             else:
                 col_b.info("Zaman trendi grafik verisi bulunamadı.")
-            
+                
             st.markdown("---")
             st.subheader(f"🔍 {selected_firma} Sipariş Listesinde Barkod Sorgulama")
-            
             search_barcode = st.text_input("Barkod Yazın (Varmı / Yokmu Kontrolü):", placeholder="Kontrol etmek istediğiniz barkodu buraya girin...").strip()
-            
             display_df = firma_df.copy()
+            
             if search_barcode:
                 search_res = display_df[display_df['BARKOD'].str.contains(search_barcode, case=False, na=False)]
                 if not search_res.empty:
                     st.success(f"✅ Barkod Bulundu! Bu firmaya ait listede aradığınız barkod ile eşleşen {len(search_res)} adet kayıt var.")
-                    display_df = search_res  
+                    display_df = search_res
                 else:
                     st.error("❌ Barkod Bulunamadı! Bu firmanın ham veri listesinde yazdığınız barkod mevcut değil.")
-            
+                    
             st.markdown(f"**{selected_firma} Veri Listesi:**")
             display_df_formatted = display_df.copy()
-            
             display_df_formatted['FIYAT'] = display_df_formatted['FIYAT'].map('{:,.2f} $'.format)
             display_df_formatted['TOPLAM_SERMAYE'] = display_df_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
             
             drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in display_df_formatted.columns]
             if drop_cols:
                 display_df_formatted = display_df_formatted.drop(columns=drop_cols)
-                
             st.dataframe(display_df_formatted.sort_values(by='SIPARIS_TARIHI', ascending=False), use_container_width=True, hide_index=True)
 
 # --- SAYFA 3: HAM VERİ ---
@@ -498,15 +535,13 @@ elif page == "3. Ham Veri":
             df_list = data_pool[tab_name]
             if df_list:
                 combined_df = pd.concat(df_list, ignore_index=True).drop_duplicates()
-                
                 raw_display = combined_df.copy()
                 raw_display['FIYAT'] = raw_display['FIYAT'].map('{:,.2f} $'.format)
                 raw_display['TOPLAM_SERMAYE'] = raw_display['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
-                
                 drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in raw_display.columns]
                 if drop_cols:
                     raw_display = raw_display.drop(columns=drop_cols)
-                    
                 st.dataframe(raw_display, use_container_width=True, hide_index=True)
             else:
                 st.warning(f"Bu sekme ({tab_name}) için veri bulunamadı.")
+
