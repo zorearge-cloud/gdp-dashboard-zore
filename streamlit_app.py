@@ -7,6 +7,7 @@ import io
 import openpyxl
 import re
 import datetime
+import time
 
 # --- AYARLAR VE ANAYASA (TAM KAPSAMLI YAPI) ---
 st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
@@ -57,7 +58,7 @@ def strict_date_string_parser(val):
     if pd.isna(val) or val == "":
         return "BELİRTİLMEMİŞ"
     
-    # openpyxl veya pandas hücreyi otomatik datetime objesi yaptıysa saat bilgisini ezerek temizliyoruz
+    # openpyxl veya pandas hücreyi otomatik datetime objesi yaptıysa saat bilgisini ezerek temizleyiyoruz
     if hasattr(val, 'strftime'):
         return val.strftime('%Y-%m-%d')
         
@@ -296,7 +297,23 @@ st.sidebar.text(f"1 EUR = {rates['EUR_TO_USD']:.4f} $")
 st.sidebar.text(f"1 CNY = {rates['CNY_TO_USD']:.4f} $")
 st.sidebar.markdown("---")
 
-page = st.sidebar.radio("Sayfa Seçimi", ["1. Genel Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
+# --- SİNEMATİK DÖNGÜ SİSTEM BELLEK İLKLENDİRMESİ ---
+PAGES_LIST = ["1. Genel Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"]
+if "cinematic_page_index" not in st.session_state:
+    st.session_state.cinematic_page_index = 0
+
+st.sidebar.subheader("🎬 Showroom Sinematik Ekran Modu")
+cinematic_mode = st.sidebar.toggle("Otomatik Döngüyü Başlat", value=False)
+cinematic_speed = st.sidebar.slider("Sayfa Değişim Hızı (Saniye)", min_value=5, max_value=60, value=15, step=5)
+st.sidebar.markdown("---")
+
+# Sinematik mod aktifse sayfa seçimi otomatik endekse bağlanır, kapalıysa standart çalışır
+if cinematic_mode:
+    page = st.sidebar.radio("Sayfa Seçimi", PAGES_LIST, index=st.session_state.cinematic_page_index)
+    st.session_state.cinematic_page_index = PAGES_LIST.index(page)
+else:
+    page = st.sidebar.radio("Sayfa Seçimi", PAGES_LIST)
+    st.session_state.cinematic_page_index = PAGES_LIST.index(page)
 
 # --- SAYFA 1: GENEL DASHBOARD (8 GRAFİKLİ TAM YAPI) ---
 if page == "1. Genel Dashboard":
@@ -312,44 +329,24 @@ if page == "1. Genel Dashboard":
 
         st.markdown("---")
         
-        # SİNEMATİK GRAFİK AYAR FONKSİYONU
-        def apply_cinematic_style(fig, is_pie=False):
-            fig.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="Segoe UI, sans-serif", size=12, color="#E0E0E0"),
-                title_font=dict(size=15, color="#00FFF0", family="Segoe UI, sans-serif"),
-                margin=dict(l=40, r=40, t=50, b=40),
-                legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#E0E0E0"))
-            )
-            if not is_pie:
-                fig.update_xaxes(showgrid=False, zeroline=False, tickfont=dict(color="#B0B0B0"))
-                fig.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)", zeroline=False, tickfont=dict(color="#B0B0B0"))
-            return fig
-
         g1, g2 = st.columns(2)
         top_sips = df_dashboard.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index()
-        fig1 = px.bar(top_sips, x='MALIN CINSI', y='ADET', title="1. En Çok Sipariş Edilen 10 Ürün (Adet)", color='ADET', color_continuous_scale='Turbo')
-        apply_cinematic_style(fig1)
+        fig1 = px.bar(top_sips, x='MALIN CINSI', y='ADET', title="1. En Çok Sipariş Edilen 10 Ürün (Adet)", color='ADET')
         g1.plotly_chart(fig1, use_container_width=True)
         
         top_money = df_dashboard.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig2 = px.bar(top_money, x='MALIN CINSI', y='TOPLAM_SERMAYE', title="2. En Çok Sermaye Yatırılan 10 Ürün ($)", color='TOPLAM_SERMAYE', color_continuous_scale='Electric')
-        apply_cinematic_style(fig2)
+        fig2 = px.bar(top_money, x='MALIN CINSI', y='TOPLAM_SERMAYE', title="2. En Çok Sermaye Yatırılan 10 Ürün ($)", color='TOPLAM_SERMAYE')
         g2.plotly_chart(fig2, use_container_width=True)
 
         g3, g4 = st.columns(2)
         top_firma = df_dashboard.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig3 = px.pie(top_firma, values='TOPLAM_SERMAYE', names='FIRMA', title="3. Harcama Yapılan İlk 10 Firma", hole=0.45, color_discrete_sequence=px.colors.qualitative.Pastel)
-        fig3.update_traces(textinfo='label+percent', marker=dict(line=dict(color='#1E1E1E', width=2)))
-        apply_cinematic_style(fig3, is_pie=True)
+        fig3 = px.pie(top_firma, values='TOPLAM_SERMAYE', names='FIRMA', title="3. Harcama Yapılan İlk 10 Firma", hole=0.4)
+        fig3.update_traces(textinfo='label+percent')
         g3.plotly_chart(fig3, use_container_width=True)
         
         top_tur = df_dashboard.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig4 = px.pie(top_tur, values='TOPLAM_SERMAYE', names='TUR', title="4. Tür Bazlı Harcama Dağılımı (USD)", hole=0.45, color_discrete_sequence=px.colors.qualitative.Safe)
-        fig4.update_traces(textinfo='label+percent', marker=dict(line=dict(color='#1E1E1E', width=2)))
-        apply_cinematic_style(fig4, is_pie=True)
+        fig4 = px.pie(top_tur, values='TOPLAM_SERMAYE', names='TUR', title="4. Tür Bazlı Harcama Dağılımı (USD)", hole=0.4)
+        fig4.update_traces(textinfo='label+percent')
         g4.plotly_chart(fig4, use_container_width=True)
 
         df_2026 = df_dashboard[df_dashboard['SIPARIS_AY'].str.startswith('2026', na=False)].copy().sort_values('SIPARIS_AY')
@@ -358,34 +355,26 @@ if page == "1. Genel Dashboard":
         top_5_firmalar = df_2026.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).index
         df_trend_firma = df_2026[df_2026['FIRMA'].isin(top_5_firmalar)]
         trend_firma = df_trend_firma.groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
-        fig5 = px.line(trend_firma, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='FIRMA', title="5. Aylık Firma Harcama Trendi (En Büyük 5 Firma)", markers=True, color_discrete_sequence=px.colors.qualitative.Vivid)
-        fig5.update_traces(line=dict(width=3.5), marker=dict(size=8))
-        fig5.update_layout(xaxis_type='category')
-        apply_cinematic_style(fig5)
+        fig5 = px.line(trend_firma, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='FIRMA', title="5. Aylık Firma Harcama Trendi (En Büyük 5 Firma)", markers=True)
+        fig5.update_layout(xaxis_type='category') # Kural 2: Zaman ekseni kilitlenmesini engeller
         g5.plotly_chart(fig5, use_container_width=True)
         
         top_5_turler = df_2026.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).index
         df_trend_tur = df_2026[df_2026['TUR'].isin(top_5_turler)]
         trend_tur = df_trend_tur.groupby(['SIPARIS_AY', 'TUR'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
-        fig6 = px.line(trend_tur, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='TUR', title="6. Aylık Tür Harcama Trendi (En Büyük 5 Tür)", markers=True, color_discrete_sequence=px.colors.qualitative.Prism)
-        fig6.update_traces(line=dict(width=3.5), marker=dict(size=8))
+        fig6 = px.line(trend_tur, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='TUR', title="6. Aylık Tür Harcama Trendi (En Büyük 5 Tür)", markers=True)
         fig6.update_layout(xaxis_type='category')
-        apply_cinematic_style(fig6)
         g6.plotly_chart(fig6, use_container_width=True)
 
         g7, g8 = st.columns(2)
         trend_total = df_2026.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
         fig7 = px.line(trend_total, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title="7. Aylık Toplam Sermaye Akışı ($)", markers=True)
-        fig7.update_traces(line=dict(width=4, color="#00FF66"), marker=dict(size=9, color="#FFFFFF"))
         fig7.update_layout(xaxis_type='category')
-        apply_cinematic_style(fig7)
         g7.plotly_chart(fig7, use_container_width=True)
         
         df_barkod_temiz = df_dashboard[(df_dashboard['BARKOD'] != "BELİRTİLMEMİŞ") & (df_dashboard['BARKOD'].str.strip() != "")]
         top_barcode = df_barkod_temiz.groupby('BARKOD').agg({'ADET': 'sum', 'MALIN CINSI': 'first'}).nlargest(10, 'ADET').reset_index()
-        fig8 = px.bar(top_barcode, x='MALIN CINSI', y='ADET', title="8. Barkod Bazlı Top 10 Ürün (Gerçek Barkodlar)", text='BARKOD', color='ADET', color_continuous_scale='Cividis')
-        fig8.update_traces(textposition='inside')
-        apply_cinematic_style(fig8)
+        fig8 = px.bar(top_barcode, x='MALIN CINSI', y='ADET', title="8. Barkod Bazlı Top 10 Ürün (Gerçek Barkodlar)", text='BARKOD', color='ADET')
         g8.plotly_chart(fig8, use_container_width=True)
 
 # --- SAYFA 2: FİRMA BAZLI ANALİZ ---
@@ -413,22 +402,6 @@ elif page == "2. Firma Bazlı Analiz":
             
             col_a, col_b = st.columns(2)
             
-            # SİNEMATİK GRAFİK AYAR FONKSİYONU (YERELLER İÇİN)
-            def apply_cinematic_style(fig, is_pie=False):
-                fig.update_layout(
-                    template="plotly_dark",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(family="Segoe UI, sans-serif", size=12, color="#E0E0E0"),
-                    title_font=dict(size=15, color="#00FFF0", family="Segoe UI, sans-serif"),
-                    margin=dict(l=40, r=40, t=50, b=40),
-                    legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#E0E0E0"))
-                )
-                if not is_pie:
-                    fig.update_xaxes(showgrid=False, zeroline=False)
-                    fig.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)", zeroline=False)
-                return fig
-
             if not firma_df.empty and firma_df['TOPLAM_SERMAYE'].sum() > 0:
                 kategori_ozet = firma_df.groupby('TUR')['TOPLAM_SERMAYE'].sum().reset_index()
                 if len(kategori_ozet) > 6:
@@ -439,9 +412,8 @@ elif page == "2. Firma Bazlı Analiz":
                     firma_df_pie = firma_df.copy()
                     firma_df_pie['TUR_GRAFIK'] = firma_df_pie['TUR']
                 
-                fig_a = px.pie(firma_df_pie, values='TOPLAM_SERMAYE', names='TUR_GRAFIK', title=f"{selected_firma} Ürün Kategorisi Dağılımı (İlk 6 + Diğer)", hole=0.45, color_discrete_sequence=px.colors.qualitative.Pastel)
-                fig_a.update_traces(textinfo='label+percent', marker=dict(line=dict(color='#1E1E1E', width=2)))
-                apply_cinematic_style(fig_a, is_pie=True)
+                fig_a = px.pie(firma_df_pie, values='TOPLAM_SERMAYE', names='TUR_GRAFIK', title=f"{selected_firma} Ürün Kategorisi Dağılımı (İlk 6 + Diğer)", hole=0.4)
+                fig_a.update_traces(textinfo='label+percent')
                 col_a.plotly_chart(fig_a, use_container_width=True)
             else:
                 col_a.info("Grafik için yeterli veri yok.")
@@ -449,9 +421,8 @@ elif page == "2. Firma Bazlı Analiz":
             # KESİN ÇÖZÜM: AECOOLY ve Diğer Firmaların Grafiğini Sabitleyen Alan
             trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
             if not trend_data_all.empty and trend_data_all['TOPLAM_SERMAYE'].sum() > 0:
-                fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE', color_continuous_scale='Sunsetdark')
+                fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE')
                 fig_b.update_layout(xaxis_type='category') # Bozuk veya belirsiz tarih metinlerinin grafiği ezmesini önler
-                apply_cinematic_style(fig_b)
                 col_b.plotly_chart(fig_b, use_container_width=True)
             else:
                 col_b.info("Zaman trendi grafik verisi bulunamadı.")
@@ -504,3 +475,9 @@ elif page == "3. Ham Veri":
                 st.dataframe(raw_display, use_container_width=True, hide_index=True)
             else:
                 st.warning(f"Bu sekme ({tab_name}) için veri bulunamadı.")
+
+# --- SİNEMATİK MOTOR TETİKLEYİCİSİ (KODUN EN ALT KORUYUCU KATMANI) ---
+if cinematic_mode:
+    time.sleep(cinematic_speed)
+    st.session_state.cinematic_page_index = (st.session_state.cinematic_page_index + 1) % len(PAGES_LIST)
+    st.rerun()
