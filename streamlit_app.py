@@ -241,7 +241,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio("Menü", ["1. Genel Analiz Paneli", "2. Firma Bazlı Analiz", "3. Ham Veri"])
 
-# --- SAYFA 1: GENEL ANALİZ PANELİ (SABİT VERİ, SÜREKLİ DÖNEN DONUT MATRİSİ) ---
+# --- SAYFA 1: GENEL ANALİZ PANELİ ---
 if page == "1. Genel Analiz Paneli":
     st.header("📋 ZORE Sipariş Takip ve Performans Özet Paneli")
     
@@ -255,38 +255,30 @@ if page == "1. Genel Analiz Paneli":
         c3.metric("Aktif Partner Firma Sayısı", df_dashboard['FIRMA'].nunique())
         st.markdown("---")
         
-        # TÜM VERİYİ KAPSAYAN GENEL TOPLAM HESAPLAMALARI (Döngü Yok, Sabit)
+        # TÜM VERİYİ KAPSAYAN GENEL TOPLAM HESAPLAMALARI
         df_genel = df_dashboard.copy()
         
-        # 1. En Çok Sipariş Edilen İlk 5 Ürün (Adet)
         c1_df = df_genel.groupby('MALIN CINSI')['ADET'].sum().nlargest(5).reset_index()
         c1_data = [{"value": int(row['ADET']), "name": str(row['MALIN CINSI'])} for _, row in c1_df.iterrows()]
         
-        # 2. En Çok Sermaye Yatırılan İlk 5 Ürün ($)
         c2_df = df_genel.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
         c2_data = [{"value": round(row['TOPLAM_SERMAYE'], 2), "name": str(row['MALIN CINSI'])} for _, row in c2_df.iterrows()]
         
-        # 3. İlk 5 Firma Harcama Dağılımı ($)
         c3_df = df_genel.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
         c3_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": str(row['FIRMA'])} for _, row in c3_df.iterrows()]
         
-        # 4. İlk 5 Tür Bazlı Harcama Dağılımı ($)
         c4_df = df_genel.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
         c4_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": str(row['TUR'])} for _, row in c4_df.iterrows()]
         
-        # 5. İlk 5 Firma Sipariş Adedi Dağılımı
         c5_df = df_genel.groupby('FIRMA')['ADET'].sum().nlargest(5).reset_index()
         c5_data = [{"value": int(row['ADET']), "name": str(row['FIRMA'])} for _, row in c5_df.iterrows()]
         
-        # 6. İlk 5 Tür Bazlı Sipariş Adedi Dağılımı
         c6_df = df_genel.groupby('TUR')['ADET'].sum().nlargest(5).reset_index()
         c6_data = [{"value": int(row['ADET']), "name": str(row['TUR'])} for _, row in c6_df.iterrows()]
         
-        # 7. Nakliye Türü Bazlı Genel Dağılım ($)
         c7_df = df_genel.groupby('NAKLİYE_TÜRÜ')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
         c7_data = [{"value": round(row['TOPLAM_SERMAYE'], 2), "name": str(row['NAKLİYE_TÜRÜ'])} for _, row in c7_df.iterrows()]
         
-        # 8. İlk 5 Barkod Bazlı Ürün Dağılımı (Adet)
         df_barkod = df_genel[(df_genel['BARKOD'] != "BELİRTİLMEMİŞ") & (df_genel['BARKOD'].str.strip() != "")]
         c8_df = df_barkod.groupby('BARKOD')['ADET'].sum().nlargest(5).reset_index()
         c8_data = [{"value": int(row['ADET']), "name": str(row['BARKOD'])} for _, row in c8_df.iterrows()]
@@ -297,7 +289,7 @@ if page == "1. Genel Analiz Paneli":
         }
 
         # HTML VE KURUMSAL JAVASCRIPT TEMPLATE
-        # Veri sabit, sadece dış grafik kendi etrafında dönüyor, isimler içeride ve büyük!
+        # GIF'teki gibi yazılar dışarıda (labelLine ile bağlı) ve grafik akıcı şekilde dönüyor.
         html_template = """
         <!DOCTYPE html>
         <html>
@@ -346,7 +338,6 @@ if page == "1. Genel Analiz Paneli":
                 const textStyle = { color: '#ffffff', fontSize: 13, fontWeight: 'bold' };
                 const chartKeys = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'];
                 
-                // Başlıklar Genel Toplam konseptine uyarlandı
                 const titles = {
                     c1: '1. En Çok Sipariş Edilen İlk 5 Ürün (Genel Toplam Adet)',
                     c2: '2. En Yüksek Hacimli İlk 5 Ürün (Genel Toplam USD)',
@@ -371,32 +362,36 @@ if page == "1. Genel Analiz Paneli":
 
                 const charts = {};
                 
-                // 8 Grafiğin de aynı tasarımda (Neon sabit + Dönen Pasta + İsimler içte) başlatılması
                 chartKeys.forEach(key => {
                     charts[key] = echarts.init(document.getElementById(key));
                     charts[key].setOption({
-                        title: { text: titles[key], textStyle: textStyle, top: 5, left: 'center' },
+                        title: { text: titles[key], textStyle: textStyle, top: 15, left: 'center' },
                         tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
                         color: colors[key],
                         series: [
-                            // Dıştaki Veri Donut'ı (Dönecek Olan)
+                            // Dış Veri Donut'ı (Dönecek Olan)
                             {
                                 type: 'pie',
-                                radius: ['48%', '75%'], // Kalın ve içi boş Donut yapısı
+                                radius: ['48%', '62%'], // Pastaya yer açıldı
                                 center: ['50%', '55%'],
                                 itemStyle: { borderRadius: 4, borderColor: '#03050a', borderWidth: 2 },
-                                // YAZILAR PASTALARIN İÇİNDE VE BÜYÜK
+                                // YAZILAR DIŞARIDA VE ÇİZGİLERLE BAĞLI (GIF TASARIMI)
                                 label: { 
-                                    position: 'inside', 
+                                    show: true,
+                                    position: 'outside', 
                                     formatter: '{b}', 
                                     color: '#ffffff', 
-                                    fontSize: 16, // Yazılar büyütüldü
-                                    fontWeight: 'bold',
-                                    textShadowBlur: 4,
-                                    textShadowColor: '#000000'
+                                    fontSize: 12, 
+                                    fontWeight: 'bold'
                                 },
-                                labelLine: { show: false }, // Dışarı taşan çizgiler iptal
-                                data: chartData[key + '_data'] // Veriler doğrudan "Genel Toplam" matrisinden okunur
+                                labelLine: { 
+                                    show: true,
+                                    length: 15,
+                                    length2: 20,
+                                    smooth: true,
+                                    lineStyle: { width: 2 }
+                                }, 
+                                data: chartData[key + '_data'] 
                             },
                             // Ortadaki Sabit Neon Halka
                             {
@@ -407,21 +402,21 @@ if page == "1. Genel Analiz Paneli":
                                 label: { show: false },
                                 labelLine: { show: false },
                                 data: [{ value: 1 }],
-                                silent: true // Üzerine gelinince tepki vermemesi için
+                                silent: true
                             }
                         ]
                     });
                 });
 
-                // EKRAN VERİSİ SABİT KALIR, SADECE GRAFİĞİN DIŞ HALKASI DÖNER
-                let rotationAngle = 0;
+                // EKRAN VERİSİ SABİT KALIR, SADECE GRAFİĞİN DIŞ HALKASI YAVAŞÇA DÖNER
+                let rotationAngle = 90;
                 setInterval(() => {
-                    rotationAngle -= 0.8; // Dönüş hızı
+                    rotationAngle += 0.5; // Saat yönünün tersine GIF'teki gibi pürüzsüz ağır dönüş
                     chartKeys.forEach(key => {
                         charts[key].setOption({
                             series: [
-                                { startAngle: rotationAngle }, // Sadece index 0 (Dış Veri Donut'ı) döner
-                                { startAngle: 90 } // index 1 (Neon Halka) 90 derecede sabit kalır
+                                { startAngle: rotationAngle }, // index 0 (Dış Veri Donut'ı) döner
+                                { startAngle: 90 } // index 1 (Neon Halka) sabit kalır
                             ]
                         });
                     });
@@ -438,7 +433,6 @@ if page == "1. Genel Analiz Paneli":
         html_ready = html_template.replace("__GENERAL_MATRIX__", json.dumps(general_matrix))
         
         st.components.v1.html(html_ready, height=2000, scrolling=False)
-
 
 # --- SAYFA 2: FİRMA BAZLI ANALİZ ---
 elif page == "2. Firma Bazlı Analiz":
