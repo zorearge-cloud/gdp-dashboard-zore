@@ -261,7 +261,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio("Sayfa Seçimi", ["1. Genel Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
 
-# --- SAYFA 1: GENEL DASHBOARD (KURUMSAL VE SABİT TASARIM) ---
+# --- SAYFA 1: GENEL DASHBOARD (6 GRAFİKLİ ENTEGRE YAPI) ---
 if page == "1. Genel Dashboard":
     st.header("📊 ZORE Sipariş Takip Kontrol Paneli")
     
@@ -288,8 +288,6 @@ if page == "1. Genel Dashboard":
         top_5_turler = df_dashboard.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).index
         trend_tur = df_dashboard[df_dashboard['TUR'].isin(top_5_turler)].groupby(['SIPARIS_AY', 'TUR'])['TOPLAM_SERMAYE'].sum().reset_index()
         
-        trend_total = df_dashboard.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
-        
         timeline_matrix = {}
         for month in months_sequence:
             df_cum = df_dashboard[df_dashboard['SIPARIS_AY'] <= month]
@@ -302,9 +300,6 @@ if page == "1. Genel Dashboard":
             
             c4_df = df_cum.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
             c4_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": row['TUR']} for _, row in c4_df.iterrows()]
-            
-            df_barkod = df_cum[(df_cum['BARKOD'] != "BELİRTİLMEMİŞ") & (df_cum['BARKOD'].str.strip() != "")]
-            c8_df = df_barkod.groupby('BARKOD').agg({'ADET': 'sum'}).nlargest(5, 'ADET').reset_index().iloc[::-1]
             
             curr_months = [m for m in months_sequence if m <= month]
             
@@ -320,18 +315,14 @@ if page == "1. Genel Dashboard":
                 data = [t_data[t_data['SIPARIS_AY'] == m]['TOPLAM_SERMAYE'].sum() if m in t_data['SIPARIS_AY'].values else 0 for m in curr_months]
                 c6_series.append({"name": t, "data": [round(x,2) for x in data]})
                 
-            c7_data = [round(trend_total[trend_total['SIPARIS_AY'] == m]['TOPLAM_SERMAYE'].sum(), 2) if m in trend_total['SIPARIS_AY'].values else 0 for m in curr_months]
-            
             timeline_matrix[month] = {
                 "c1_names": c1_df['MALIN CINSI'].tolist(), "c1_vals": c1_df['ADET'].tolist(),
                 "c2_names": c2_df['MALIN CINSI'].tolist(), "c2_vals": c2_df['TOPLAM_SERMAYE'].tolist(),
                 "c3_data": c3_data, "c4_data": c4_data,
-                "c5_series": c5_series, "c6_series": c6_series,
-                "c7_months": curr_months, "c7_data": c7_data,
-                "c8_names": c8_df['BARKOD'].tolist(), "c8_vals": c8_df['ADET'].tolist(),
+                "c5_series": c5_series, "c6_series": c6_series
             }
 
-        # HTML VE JAVASCRIPT TEMPLATE (KURUMSAL VE DÖNEN DONUT TASARIMI)
+        # HTML VE JAVASCRIPT TEMPLATE (PERFORMANS İÇİN 6 GRAFİĞE OPTİMİZE EDİLDİ)
         html_template = """
         <!DOCTYPE html>
         <html>
@@ -373,29 +364,22 @@ if page == "1. Genel Dashboard":
                 <div id="c4" class="panel"></div>
                 <div id="c5" class="panel"></div>
                 <div id="c6" class="panel"></div>
-                <div id="c7" class="panel"></div>
-                <div id="c8" class="panel"></div>
             </div>
 
             <script>
                 const timelineMatrix = __TIMELINE_MATRIX__;
                 const monthsSequence = __MONTHS_SEQUENCE__;
                 
-                // Genel Toplam verilerini sabitlemek için sadece dizideki "Son Ay" verisini çekiyoruz.
                 const lastMonth = monthsSequence[monthsSequence.length - 1];
                 const data = timelineMatrix[lastMonth];
 
-                // Bütün grafik tiplerini Echarts Donut yapısına (isim ve değer objesi) uygun hale getiriyoruz
                 const c1_data = data.c1_names.map((n, i) => ({name: n, value: data.c1_vals[i]}));
                 const c2_data = data.c2_names.map((n, i) => ({name: n, value: data.c2_vals[i]}));
                 const c3_data = data.c3_data;
                 const c4_data = data.c4_data;
                 const c5_data = data.c5_series.map(s => ({name: s.name, value: Number(s.data.reduce((a,b)=>a+b, 0).toFixed(2))}));
                 const c6_data = data.c6_series.map(s => ({name: s.name, value: Number(s.data.reduce((a,b)=>a+b, 0).toFixed(2))}));
-                const c7_data = data.c7_months.map((m, i) => ({name: m, value: data.c7_data[i]}));
-                const c8_data = data.c8_names.map((n, i) => ({name: n, value: data.c8_vals[i]}));
 
-                // Görseldeki Neon Renk Paleti
                 const colorPalette = ['#00f3ff', '#ff00ff', '#00ff66', '#ffaa00', '#aa00ff', '#ff3300', '#0011ff'];
 
                 function getDonutOption(titleText, chartData) {
@@ -426,7 +410,6 @@ if page == "1. Genel Dashboard":
                                 animationDuration: 1000
                             },
                             {
-                                // Resimdeki gibi içeride bulunan ince dekoratif neon halka
                                 type: 'pie',
                                 radius: ['34%', '36%'],
                                 center: ['50%', '55%'],
@@ -444,8 +427,7 @@ if page == "1. Genel Dashboard":
                 const charts = {
                     c1: echarts.init(document.getElementById('c1')), c2: echarts.init(document.getElementById('c2')),
                     c3: echarts.init(document.getElementById('c3')), c4: echarts.init(document.getElementById('c4')),
-                    c5: echarts.init(document.getElementById('c5')), c6: echarts.init(document.getElementById('c6')),
-                    c7: echarts.init(document.getElementById('c7')), c8: echarts.init(document.getElementById('c8'))
+                    c5: echarts.init(document.getElementById('c5')), c6: echarts.init(document.getElementById('c6'))
                 };
 
                 charts.c1.setOption(getDonutOption('1. En Çok Sipariş Edilen İlk 5 Ürün (Adet)', c1_data));
@@ -454,10 +436,7 @@ if page == "1. Genel Dashboard":
                 charts.c4.setOption(getDonutOption('4. Tür Bazlı Harcama Dağılımı', c4_data));
                 charts.c5.setOption(getDonutOption('5. Firma Harcama Dağılımı Özeti', c5_data));
                 charts.c6.setOption(getDonutOption('6. Kategori Harcama Dağılımı Özeti', c6_data));
-                charts.c7.setOption(getDonutOption('7. Aylara Göre Toplam Sermaye Payı ($)', c7_data));
-                charts.c8.setOption(getDonutOption('8. Barkod Bazlı İlk 5 Ürün (Adet)', c8_data));
 
-                // İstenilen Yavaş ve Pürüzsüz Dönme Efekti Motoru
                 let currentAngle = 90;
                 setInterval(() => {
                     currentAngle = (currentAngle - 0.3) % 360; 
@@ -479,9 +458,7 @@ if page == "1. Genel Dashboard":
         """
         
         html_ready = html_template.replace("__TIMELINE_MATRIX__", json.dumps(timeline_matrix)).replace("__MONTHS_SEQUENCE__", json.dumps(months_sequence))
-        
-        # Ekran sığmama sorunu için yükseklik 1700'den 2100'e çıkarıldı.
-        st.components.v1.html(html_ready, height=2100, scrolling=False)
+        st.components.v1.html(html_ready, height=1550, scrolling=False)
 
 
 # --- SAYFA 2: FİRMA BAZLI ANALİZ ---
@@ -550,7 +527,23 @@ elif page == "2. Firma Bazlı Analiz":
             
             drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in display_df_formatted.columns]
             
-            # Alt kısımdaki eksik tablo bastırma kodları da tamamlandı
             if drop_cols:
                 display_df_formatted = display_df_formatted.drop(columns=drop_cols)
             st.dataframe(display_df_formatted, use_container_width=True)
+
+# --- SAYFA 3: HAM VERİ ---
+elif page == "3. Ham Veri":
+    st.header("🗄️ Ham Veri Havuzu")
+    if df_dashboard.empty:
+        st.error("Veri havuzu boş.")
+    else:
+        st.markdown("Sistem tarafından çekilen ve birleştirilen tüm temizlenmiş ham veriler aşağıdadır:")
+        df_all_formatted = df_dashboard.copy()
+        df_all_formatted['FIYAT'] = df_all_formatted['FIYAT'].map('{:,.2f} $'.format)
+        df_all_formatted['TOPLAM_SERMAYE'] = df_all_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
+        
+        drop_cols_all = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in df_all_formatted.columns]
+        if drop_cols_all:
+            df_all_formatted = df_all_formatted.drop(columns=drop_cols_all)
+            
+        st.dataframe(df_all_formatted, use_container_width=True)
