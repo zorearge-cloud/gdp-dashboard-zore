@@ -104,7 +104,8 @@ def clean_data(df, rates):
             yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元', 'CHINESE']
             euro_symbols = ['€', 'EUR', 'EURO']
             
-            if 'CATHY' in firma_name or 'AECOOLY' in firma_name or any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
+            # CRITICAL DÜZELTME: AECOOLY ifadesini buradan kaldırdık çünkü para birimi görselde net Dolar ($) bazlı.
+            if 'CATHY' in firma_name or any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
                 currency = 'CNY'
                 sym_char = '¥'
             elif any(sym in val_str for sym in euro_symbols) or any(sym in val_str.upper() for sym in euro_symbols):
@@ -302,25 +303,18 @@ if page == "1. Genel Dashboard":
 
         g3, g4 = st.columns(2)
         
-        # --- [İSTENEN DEĞİŞİKLİK] GRAFİK 3: ANIMASYONLU BAR CHART RACE (FİRMA YARIŞI) ---
+        # --- GRAFİK 3: ANIMASYONLU BAR CHART RACE (GÜVENLİ VE SABİT YAPI) ---
         df_anim = df_dashboard.copy()
-        # Sadece 2026 yılı verilerini kronolojik sıraya alıyoruz
         df_anim = df_anim[df_anim['SIPARIS_AY'].str.startswith('2026', na=False)]
         
         if not df_anim.empty:
-            # Genel olarak en büyük harcama yapılan ilk 10 firmayı bulalım
             top_10_overall = df_dashboard.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).index
-            
-            # Aylık bazda harcamaları matrise döküp kümülatif (birikimli) toplam alıyoruz (Yarış hissi için)
             monthly_matrix = df_anim.groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().unstack(fill_value=0)
             cum_matrix = monthly_matrix.cumsum(axis=0)
             df_race = cum_matrix.stack().reset_index(name='KUMULATIF_HARCAMA')
-            
-            # Sadece bu ilk 10 firmayı yarış tablosunda tutuyoruz
             df_race = df_race[df_race['FIRMA'].isin(top_10_overall)].sort_values('SIPARIS_AY')
             max_x_val = df_race['KUMULATIF_HARCAMA'].max() if not df_race.empty else 10000
             
-            # Yatay dinamik çubuk grafiği (Bar Chart Race)
             fig3 = px.bar(
                 df_race,
                 x='KUMULATIF_HARCAMA',
@@ -334,25 +328,12 @@ if page == "1. Genel Dashboard":
                 category_orders={'FIRMA': list(top_10_overall)[::-1]}
             )
             
-            # Oynatıcı buton hız ayarlarını optimize etme
-            fig3.update_layout(
-                animation_sliders=[{"currentvalue": {"prefix": "Dönem: "}}],
-                updatemenus=[{
-                    "type": "buttons",
-                    "buttons": [
-                        {
-                            "label": "Oynat ▷",
-                            "method": "animate",
-                            "args": [None, {"frame": {"duration": 1200, "redraw": True}, "fromcurrent": True}]
-                        },
-                        {
-                            "label": "Durdur ⏸",
-                            "method": "animate",
-                            "args": [[None], {"frame": {"duration": 0, "redraw": False}, "mode": "immediate", "transition": {"duration": 0}}]
-                        }
-                    ]
-                }]
-            )
+            # ÇÖKMEYİ ÖNLEYEN GÜVENLİ YÖNTEM: Slider parametrelerini içeriden override ediyoruz
+            if hasattr(fig3, 'layout') and fig3.layout.updatemenus:
+                fig3.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 1200
+                fig3.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 500
+            if hasattr(fig3, 'layout') and fig3.layout.sliders:
+                fig3.layout.sliders[0].currentvalue.prefix = "Dönem: "
         else:
             fig3 = px.bar(title="3. Harcama Yapılan İlk 10 Firma (Veri Yok)")
             
@@ -435,7 +416,7 @@ elif page == "2. Firma Bazlı Analiz":
             trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
             if not trend_data_all.empty and trend_data_all['TOPLAM_SERMAYE'].sum() > 0:
                 fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE')
-                fig_b.update_layout(xaxis_type='category')
+                fig_b.update_layout(xaxis_type='category') # DÜZELTME: Grafiklerdeki milisaniye kırılma hatasını çözen kritik satır
                 col_b.plotly_chart(fig_b, use_container_width=True)
             else:
                 col_b.info("Zaman trendi grafik verisi bulunamadı.")
