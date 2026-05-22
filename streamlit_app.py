@@ -7,10 +7,9 @@ import datetime
 import json
 import re
 
-# --- AYARLAR VE ANAYASA (TAM KAPSAMLI YAPI) ---
+# --- AYARLAR VE ANAYASA ---
 st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
 
-# 1. KURAL: Veri çekme bağlantıları ve tab yapıları tamamen korundu
 LINKS = [
     "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=xlsx",
@@ -31,7 +30,6 @@ HEADER_MAP = {
     'YUKLEME TARIHI': 'YUKLEME_TARIHI', 'YUKLEME_TARIHI': 'YUKLEME_TARIHI'
 }
 
-# --- CANLI DÖVİZ KURU MOTORU ---
 @st.cache_data(ttl=3600)
 def get_live_rates():
     rates = {"EUR_TO_USD": 1.09, "CNY_TO_USD": 0.138, "PROUNCE": "Yedek Kur Panelden Okundu"}
@@ -52,7 +50,6 @@ def get_live_rates():
 
 rates = get_live_rates()
 
-# --- GELİŞMİŞ TARİH STANDARTLAŞTIRMA MOTORU ---
 def strict_date_string_parser(val):
     if pd.isna(val) or val == "":
         return "BELİRTİLMEMİŞ"
@@ -60,27 +57,21 @@ def strict_date_string_parser(val):
         return val.strftime('%Y-%m-%d')
     
     val_str = str(val).strip()
-    if " " in val_str:
-        val_str = val_str.split()[0]
-    
+    if " " in val_str: val_str = val_str.split()[0]
     val_str = val_str.replace('/', '.').replace('-', '.')
     
     for fmt in ['%Y.%m.%d', '%d.%m.%Y', '%Y.%d.%m']:
         try:
             dt = datetime.datetime.strptime(val_str, fmt)
             return dt.strftime('%Y-%m-%d')
-        except:
-            continue
+        except: continue
             
     try:
         dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
-        if not pd.isna(dt):
-            return dt.strftime('%Y-%m-%d')
-    except:
-        pass
+        if not pd.isna(dt): return dt.strftime('%Y-%m-%d')
+    except: pass
     return "BELİRTİLMEMİŞ"
 
-# --- VERİ TEMİZLEME VE DÖNÜŞTÜRME MOTORU ---
 def clean_data(df, rates):
     df = df.loc[:, ~df.columns.duplicated()]
     for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
@@ -99,8 +90,7 @@ def clean_data(df, rates):
             val = row['FIYAT']
             firma_name = str(row['FIRMA']).upper().strip()
         
-            if pd.isna(val):
-                return 0.0, 0.0, '$'
+            if pd.isna(val): return 0.0, 0.0, '$'
             
             val_str = str(val).strip()
             currency = 'USD'
@@ -128,17 +118,12 @@ def clean_data(df, rates):
             elif ',' in val_str:
                 val_str = val_str.replace(',', '.')
                 
-            try:
-                numeric_price = float(val_str)
-            except:
-                numeric_price = 0.0
+            try: numeric_price = float(val_str)
+            except: numeric_price = 0.0
        
-            if currency == 'CNY':
-                usd_price = numeric_price * rates["CNY_TO_USD"]
-            elif currency == 'EUR':
-                usd_price = numeric_price * rates["EUR_TO_USD"]
-            else:
-                usd_price = numeric_price
+            if currency == 'CNY': usd_price = numeric_price * rates["CNY_TO_USD"]
+            elif currency == 'EUR': usd_price = numeric_price * rates["EUR_TO_USD"]
+            else: usd_price = numeric_price
             return usd_price, numeric_price, sym_char
             
         res = df.apply(parse_price_details, axis=1)
@@ -176,7 +161,6 @@ def clean_data(df, rates):
                 df[text_col] = val_series.replace({'nan': 'BELİRTİLMEMİŞ', 'None': 'BELİRTİLMEMİŞ', '': 'BELİRTİLMEMİŞ'})
     return df
 
-# --- COKLU DOSYA VE LINK YÖNETİM MOTORU ---
 @st.cache_data(ttl=600)
 def get_all_data(rates):
     all_data_list = []
@@ -200,10 +184,8 @@ def get_all_data(rates):
                         clean_h = h.replace('İ', 'I').replace('Ş', 'S').replace('Ü', 'U').replace('Ç', 'C').replace('Ğ', 'G').replace('_', ' ')
                         headers.append(HEADER_MAP.get(clean_h, h))
                         
-                    try:
-                        fiyat_idx = headers.index('FIYAT')
-                    except ValueError:
-                        fiyat_idx = -1
+                    try: fiyat_idx = headers.index('FIYAT')
+                    except ValueError: fiyat_idx = -1
                         
                     data = []
                     for row in rows[1:]:
@@ -238,8 +220,7 @@ def get_all_data(rates):
                     if not df_clean.empty:
                         pool[tab].append(df_clean)
                         all_data_list.append(df_clean)
-        except:
-            continue
+        except: continue
             
     full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
     if not full_df.empty:
@@ -252,7 +233,6 @@ def get_all_data(rates):
 
 df_dashboard, data_pool = get_all_data(rates)
 
-# --- NAVİGASYON VE SIDEBAR YÖNETİMİ ---
 st.sidebar.title("ZORE KURUMSAL PANEL")
 st.sidebar.markdown(f"**Finansal Kur Durumu:** `{rates['PROUNCE']}`")
 st.sidebar.text(f"1 EUR = {rates['EUR_TO_USD']:.4f} $")
@@ -261,7 +241,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio("Menü", ["1. Genel Analiz Paneli", "2. Firma Bazlı Analiz", "3. Ham Veri"])
 
-# --- SAYFA 1: GENEL ANALİZ PANELİ (KURUMSAL VE SÜREKLİ DONUT YAPISI) ---
+# --- SAYFA 1: GENEL ANALİZ PANELİ (SABİT VERİ, SÜREKLİ DÖNEN DONUT MATRİSİ) ---
 if page == "1. Genel Analiz Paneli":
     st.header("📋 ZORE Sipariş Takip ve Performans Özet Paneli")
     
@@ -270,63 +250,54 @@ if page == "1. Genel Analiz Paneli":
     else:
         # Üst Metrik Kartları
         c1, c2, c3 = st.columns(3)
-        c1.metric("Toplam Sipariş Adedi", f"{int(df_dashboard['ADET'].sum()):,}")
-        c2.metric("Toplam Sermaye Yatırımı (USD)", f"{df_dashboard['TOPLAM_SERMAYE'].sum():,.2f} $")
+        c1.metric("Genel Toplam Sipariş Adedi", f"{int(df_dashboard['ADET'].sum()):,}")
+        c2.metric("Genel Toplam İşlem Hacmi (USD)", f"{df_dashboard['TOPLAM_SERMAYE'].sum():,.2f} $")
         c3.metric("Aktif Partner Firma Sayısı", df_dashboard['FIRMA'].nunique())
         st.markdown("---")
         
-        # Dönemsel Veri Yapılandırması
-        valid_df = df_dashboard[df_dashboard['SIPARIS_AY'] != "Bilinmeyen Dönem"].copy()
-        months_sequence = sorted(valid_df['SIPARIS_AY'].unique().tolist())
+        # TÜM VERİYİ KAPSAYAN GENEL TOPLAM HESAPLAMALARI (Döngü Yok, Sabit)
+        df_genel = df_dashboard.copy()
         
-        if not months_sequence:
-            months_sequence = ["Genel"]
-            
-        timeline_matrix = {}
-        for month in months_sequence:
-            # İlgili aya kadar olan kümeli/aktif veriler
-            df_cum = df_dashboard[df_dashboard['SIPARIS_AY'] <= month]
-            df_curr = df_dashboard[df_dashboard['SIPARIS_AY'] == month]
-            
-            # 1. En Çok Sipariş Edilen İlk 5 Ürün (Adet)
-            c1_df = df_cum.groupby('MALIN CINSI')['ADET'].sum().nlargest(5).reset_index()
-            c1_data = [{"value": int(row['ADET']), "name": str(row['MALIN CINSI'])} for _, row in c1_df.iterrows()]
-            
-            # 2. En Çok Sermaye Yatırılan İlk 5 Ürün ($)
-            c2_df = df_cum.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
-            c2_data = [{"value": round(row['TOPLAM_SERMAYE'], 2), "name": str(row['MALIN CINSI'])} for _, row in c2_df.iterrows()]
-            
-            # 3. İlk 5 Firma Harcama Dağılımı
-            c3_df = df_cum.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
-            c3_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": str(row['FIRMA'])} for _, row in c3_df.iterrows()]
-            
-            # 4. İlk 5 Tür Bazlı Harcama Dağılımı
-            c4_df = df_cum.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
-            c4_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": str(row['TUR'])} for _, row in c4_df.iterrows()]
-            
-            # 5. Firma Bazlı Dönemsel Dağılım (Aktif Ay Dağılımı)
-            c5_df = df_curr.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
-            c5_data = [{"value": round(row['TOPLAM_SERMAYE'], 2), "name": str(row['FIRMA'])} for _, row in c5_df.iterrows()]
-            
-            # 6. Tür Bazlı Dönemsel Dağılım (Aktif Ay Dağılımı)
-            c6_df = df_curr.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
-            c6_data = [{"value": round(row['TOPLAM_SERMAYE'], 2), "name": str(row['TUR'])} for _, row in c6_df.iterrows()]
-            
-            # 7. Dönemsel Toplam Sermaye Payları (Kümeli Ayların Payı)
-            c7_df = df_cum.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
-            c7_data = [{"value": round(row['TOPLAM_SERMAYE'], 2), "name": str(row['SIPARIS_AY'])} for _, row in c7_df.iterrows()]
-            
-            # 8. İlk 5 Barkod Bazlı Ürün Dağılımı (5 Ayın Toplamı - Sabit Tutulacak)
-            df_barkod = df_cum[(df_cum['BARKOD'] != "BELİRTİLMEMİŞ") & (df_cum['BARKOD'].str.strip() != "")]
-            c8_df = df_barkod.groupby('BARKOD')['ADET'].sum().nlargest(5).reset_index()
-            c8_data = [{"value": int(row['ADET']), "name": str(row['BARKOD'])} for _, row in c8_df.iterrows()]
-            
-            timeline_matrix[month] = {
-                "c1_data": c1_data, "c2_data": c2_data, "c3_data": c3_data, "c4_data": c4_data,
-                "c5_data": c5_data, "c6_data": c6_data, "c7_data": c7_data, "c8_data": c8_data
-            }
+        # 1. En Çok Sipariş Edilen İlk 5 Ürün (Adet)
+        c1_df = df_genel.groupby('MALIN CINSI')['ADET'].sum().nlargest(5).reset_index()
+        c1_data = [{"value": int(row['ADET']), "name": str(row['MALIN CINSI'])} for _, row in c1_df.iterrows()]
+        
+        # 2. En Çok Sermaye Yatırılan İlk 5 Ürün ($)
+        c2_df = df_genel.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
+        c2_data = [{"value": round(row['TOPLAM_SERMAYE'], 2), "name": str(row['MALIN CINSI'])} for _, row in c2_df.iterrows()]
+        
+        # 3. İlk 5 Firma Harcama Dağılımı ($)
+        c3_df = df_genel.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
+        c3_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": str(row['FIRMA'])} for _, row in c3_df.iterrows()]
+        
+        # 4. İlk 5 Tür Bazlı Harcama Dağılımı ($)
+        c4_df = df_genel.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
+        c4_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": str(row['TUR'])} for _, row in c4_df.iterrows()]
+        
+        # 5. İlk 5 Firma Sipariş Adedi Dağılımı
+        c5_df = df_genel.groupby('FIRMA')['ADET'].sum().nlargest(5).reset_index()
+        c5_data = [{"value": int(row['ADET']), "name": str(row['FIRMA'])} for _, row in c5_df.iterrows()]
+        
+        # 6. İlk 5 Tür Bazlı Sipariş Adedi Dağılımı
+        c6_df = df_genel.groupby('TUR')['ADET'].sum().nlargest(5).reset_index()
+        c6_data = [{"value": int(row['ADET']), "name": str(row['TUR'])} for _, row in c6_df.iterrows()]
+        
+        # 7. Nakliye Türü Bazlı Genel Dağılım ($)
+        c7_df = df_genel.groupby('NAKLİYE_TÜRÜ')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
+        c7_data = [{"value": round(row['TOPLAM_SERMAYE'], 2), "name": str(row['NAKLİYE_TÜRÜ'])} for _, row in c7_df.iterrows()]
+        
+        # 8. İlk 5 Barkod Bazlı Ürün Dağılımı (Adet)
+        df_barkod = df_genel[(df_genel['BARKOD'] != "BELİRTİLMEMİŞ") & (df_genel['BARKOD'].str.strip() != "")]
+        c8_df = df_barkod.groupby('BARKOD')['ADET'].sum().nlargest(5).reset_index()
+        c8_data = [{"value": int(row['ADET']), "name": str(row['BARKOD'])} for _, row in c8_df.iterrows()]
+        
+        general_matrix = {
+            "c1_data": c1_data, "c2_data": c2_data, "c3_data": c3_data, "c4_data": c4_data,
+            "c5_data": c5_data, "c6_data": c6_data, "c7_data": c7_data, "c8_data": c8_data
+        }
 
-        # HTML VE KURUMSAL JAVASCRIPT TEMPLATE (SABİT RADAR HALKALI, DÖNEN DONUT MATRİSİ)
+        # HTML VE KURUMSAL JAVASCRIPT TEMPLATE
+        # Veri sabit, sadece dış grafik kendi etrafında dönüyor, isimler içeride ve büyük!
         html_template = """
         <!DOCTYPE html>
         <html>
@@ -352,9 +323,9 @@ if page == "1. Genel Analiz Paneli":
         </head>
         <body>
             <div class="header-box">
-                <h2 class="matrix-title">ZORE İŞ REHBERİ VE DÖNEMSEL PERFORMANS İZLEME PANELİ</h2>
+                <h2 class="matrix-title">ZORE GENEL TOPLAM PERFORMANS İZLEME PANELİ</h2>
                 <div class="matrix-subtitle">
-                    PANEL DURUMU: <span style="color: #00ff66;">AKTİF</span> | İNCELEME DÖNEMİ: <span id="active-period" class="period-badge">YÜKLENİYOR...</span>
+                    PANEL DURUMU: <span style="color: #00ff66;">AKTİF</span> | İNCELEME DÖNEMİ: <span class="period-badge">TÜM ZAMANLAR (GENEL TOPLAM)</span>
                 </div>
             </div>
             
@@ -370,22 +341,21 @@ if page == "1. Genel Analiz Paneli":
             </div>
 
             <script>
-                const timelineMatrix = __TIMELINE_MATRIX__;
-                const monthsSequence = __MONTHS_SEQUENCE__;
-                let currentIndex = 0;
+                const chartData = __GENERAL_MATRIX__;
                 
                 const textStyle = { color: '#ffffff', fontSize: 13, fontWeight: 'bold' };
                 const chartKeys = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'];
                 
+                // Başlıklar Genel Toplam konseptine uyarlandı
                 const titles = {
-                    c1: '1. En Çok Sipariş Edilen İlk 5 Ürün Dağılımı (Adet)',
-                    c2: '2. En Çok Sermaye Yatırılan İlk 5 Ürün Dağılımı (USD)',
-                    c3: '3. Harcama Yapılan İlk 5 Firma Dağılımı (USD)',
-                    c4: '4. Ürün Türü Bazlı Harcama Dağılımı (İlk 5)',
-                    c5: '5. Firma Bazlı Dönemsel Dağılım Özet Görünümü',
-                    c6: '6. Tür Bazlı Dönemsel Dağılım Özet Görünümü',
-                    c7: '7. Dönemsel Toplam Sermaye Akış Payları',
-                    c8: '8. Barkod Bazlı İlk 5 Ürün Dağılımı (Genel Toplam Adet)'
+                    c1: '1. En Çok Sipariş Edilen İlk 5 Ürün (Genel Toplam Adet)',
+                    c2: '2. En Yüksek Hacimli İlk 5 Ürün (Genel Toplam USD)',
+                    c3: '3. Firma Bazlı Harcama Dağılımı (Genel Toplam USD)',
+                    c4: '4. Kategori Bazlı Harcama Dağılımı (Genel Toplam USD)',
+                    c5: '5. Firma Bazlı Sipariş Dağılımı (Genel Toplam Adet)',
+                    c6: '6. Kategori Bazlı Sipariş Dağılımı (Genel Toplam Adet)',
+                    c7: '7. Lojistik ve Nakliye Türü Dağılımı (Genel Toplam USD)',
+                    c8: '8. Barkod Bazlı Ürün Dağılımı (Genel Toplam Adet)'
                 };
 
                 const colors = {
@@ -401,92 +371,61 @@ if page == "1. Genel Analiz Paneli":
 
                 const charts = {};
                 
-                // 8 Grafik Alanını Aynı Kurumsal Donut Tasarım Standartında Başlatıyoruz
+                // 8 Grafiğin de aynı tasarımda (Neon sabit + Dönen Pasta + İsimler içte) başlatılması
                 chartKeys.forEach(key => {
                     charts[key] = echarts.init(document.getElementById(key));
                     charts[key].setOption({
-                        title: { text: titles[key], textStyle: textStyle },
+                        title: { text: titles[key], textStyle: textStyle, top: 5, left: 'center' },
                         tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
                         color: colors[key],
                         series: [
+                            // Dıştaki Veri Donut'ı (Dönecek Olan)
                             {
                                 type: 'pie',
-                                radius: ['42%', '68%'],
+                                radius: ['48%', '75%'], // Kalın ve içi boş Donut yapısı
                                 center: ['50%', '55%'],
-                                itemStyle: { borderRadius: 5, borderColor: '#03050a', borderWidth: 2 },
-                                // İsimler grafiğin dışında değil, İÇİNDE ve BÜYÜK yer alacak şekilde ayarlandı
+                                itemStyle: { borderRadius: 4, borderColor: '#03050a', borderWidth: 2 },
+                                // YAZILAR PASTALARIN İÇİNDE VE BÜYÜK
                                 label: { 
                                     position: 'inside', 
                                     formatter: '{b}', 
                                     color: '#ffffff', 
-                                    fontSize: 14, 
+                                    fontSize: 16, // Yazılar büyütüldü
                                     fontWeight: 'bold',
-                                    textShadowBlur: 6,
+                                    textShadowBlur: 4,
                                     textShadowColor: '#000000'
                                 },
-                                labelLine: { show: false },
-                                data: []
+                                labelLine: { show: false }, // Dışarı taşan çizgiler iptal
+                                data: chartData[key + '_data'] // Veriler doğrudan "Genel Toplam" matrisinden okunur
                             },
-                            // Ortada Yer Alan Sabit Kesik Neon Halka (Tasarım 3 Baz Alınmıştır)
+                            // Ortadaki Sabit Neon Halka
                             {
                                 type: 'pie',
-                                radius: ['33%', '34%'],
+                                radius: ['38%', '40%'], // İçeride küçük bir halka
                                 center: ['50%', '55%'],
                                 itemStyle: { color: 'transparent', borderColor: '#00f3ff', borderWidth: 2, type: 'dashed' },
                                 label: { show: false },
                                 labelLine: { show: false },
-                                data: [{ value: 1 }]
+                                data: [{ value: 1 }],
+                                silent: true // Üzerine gelinince tepki vermemesi için
                             }
                         ]
                     });
                 });
 
-                // 8. Grafik (Barkod) Verisini Genel Toplam Olacak Şekilde 5 Aya Göre Sabitliyoruz
-                const lastMonthKey = monthsSequence[monthsSequence.length - 1];
-                const fixedC8Data = timelineMatrix[lastMonthKey].c8_data;
-                charts.c8.setOption({ series: [{ data: fixedC8Data }, {}] });
-
-                // Çevrelerinin Şekli Bozulmadan Kendi Ekseninde Akıcı Dönme Animasyonu
+                // EKRAN VERİSİ SABİT KALIR, SADECE GRAFİĞİN DIŞ HALKASI DÖNER
                 let rotationAngle = 0;
                 setInterval(() => {
-                    rotationAngle -= 0.8;
+                    rotationAngle -= 0.8; // Dönüş hızı
                     chartKeys.forEach(key => {
                         charts[key].setOption({
                             series: [
-                                { startAngle: rotationAngle } // Sadece dış donut halkası döner, iç neon halka sabit kalır
+                                { startAngle: rotationAngle }, // Sadece index 0 (Dış Veri Donut'ı) döner
+                                { startAngle: 90 } // index 1 (Neon Halka) 90 derecede sabit kalır
                             ]
                         });
                     });
                 }, 40);
-
-                function updateDashboard() {
-                    const month = monthsSequence[currentIndex];
-                    const data = timelineMatrix[month];
-                    
-                    document.getElementById('active-period').innerText = (currentIndex === monthsSequence.length - 1) ? month + " (GENEL DURUM)" : month;
-                    
-                    // 1'den 7'ye kadar olan dinamik grafik verilerini yenile
-                    for (let i = 1; i <= 7; i++) {
-                        charts['c' + i].setOption({
-                            series: [{ data: data['c' + i + '_data'] }, {}]
-                        });
-                    }
-                }
-
-                function loopEngine() {
-                    updateDashboard();
-                    let delay = 3000; 
-                    if (currentIndex === monthsSequence.length - 1) {
-                        delay = 8000; // Genel Durumda raporun okunması adına daha uzun süre kalır
-                        currentIndex = 0; 
-                    } else {
-                        currentIndex++;
-                    }
-                    setTimeout(loopEngine, delay);
-                }
-
-                // Döngü Tetikleyicisi
-                setTimeout(loopEngine, 500);
                 
                 window.addEventListener('resize', () => {
                     chartKeys.forEach(key => charts[key].resize());
@@ -496,9 +435,8 @@ if page == "1. Genel Analiz Paneli":
         </html>
         """
         
-        html_ready = html_template.replace("__TIMELINE_MATRIX__", json.dumps(timeline_matrix)).replace("__MONTHS_SEQUENCE__", json.dumps(months_sequence))
+        html_ready = html_template.replace("__GENERAL_MATRIX__", json.dumps(general_matrix))
         
-        # Kesilmeyi önlemek adına height 2000 olarak güncellenmiştir.
         st.components.v1.html(html_ready, height=2000, scrolling=False)
 
 
