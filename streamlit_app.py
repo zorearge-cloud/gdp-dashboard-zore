@@ -57,8 +57,8 @@ def strict_date_string_parser(val):
     if pd.isna(val) or val == "":
         return "BELİRTİLMEMİŞ"
     
-    # openpyxl hücreyi datetime objesi olarak okuduysa saat bilgisini ezerek string'e döküyoruz
-    if isinstance(val, (datetime.datetime, datetime.date)):
+    # openpyxl veya pandas hücreyi otomatik datetime objesi yaptıysa saat bilgisini ezerek temizliyoruz
+    if hasattr(val, 'strftime'):
         return val.strftime('%Y-%m-%d')
         
     # Metin olarak gelen verilerde saat imzası varsa (00:00:00 gibi) tamamen buduyoruz
@@ -77,9 +77,9 @@ def strict_date_string_parser(val):
         except:
             continue
             
-    # Pandas fallback denemesi
+    # Küresel fallback denemesi
     try:
-        dt = pd.to_datetime(val_str, errors='coerce')
+        dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
         if not pd.isna(dt):
             return dt.strftime('%Y-%m-%d')
     except:
@@ -103,11 +103,11 @@ def clean_data(df, rates):
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
     
-    # Çoklu Para Birimi ve Kur Dönüşüm Yönetimi (AECOOLY ve CATHY Dahil Edildi)
+    # Çoklu Para Birimi ve Kur Dönüşüm Yönetimi (Tüm Gözden Kaçan Firmalar İçin Güçlendirildi)
     if 'FIYAT' in df.columns and 'FIRMA' in df.columns:
         def parse_price_details(row):
             val = row['FIYAT']
-            firma_name = str(row['FIRMA']).upper()
+            firma_name = str(row['FIRMA']).upper().strip()
             if pd.isna(val):
                 return 0.0, 0.0, '$'
             
@@ -115,10 +115,11 @@ def clean_data(df, rates):
             currency = 'USD'
             sym_char = '$'
             
-            yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元']
-            euro_symbols = ['€', 'EUR']
+            # Genişletilmiş döviz sembol listesi
+            yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元', 'CHINESE']
+            euro_symbols = ['€', 'EUR', 'EURO']
             
-            # AECOOLY ve CATHY firmalarını veya doğrudan sembol içeren verileri Yuan kabul et
+            # Firma isminden, hücre içeriğinden veya gizli karakter kodlarından yakalama mantığı
             if 'CATHY' in firma_name or 'AECOOLY' in firma_name or any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
                 currency = 'CNY'
                 sym_char = '¥'
@@ -154,7 +155,7 @@ def clean_data(df, rates):
             return usd_price, numeric_price, sym_char
 
         res = df.apply(parse_price_details, axis=1)
-        # ÖNEMLİ DEĞİŞİKLİK: Tablolarda karmaşa olmaması için ana FIYAT sütununu tamamen hesaplanmış USD değerine eşitliyoruz
+        # Tüm ara yüzlerde ve raporlarda ANNY firmasında olduğu gibi net USD ($) basılması sağlanıyor
         df['FIYAT'] = [r[0] for r in res]
         df['ORIJINAL_FIYAT'] = [r[1] for r in res]
         df['PARA_BIRIMI'] = [r[2] for r in res]
@@ -241,11 +242,12 @@ def get_all_data(rates):
                                 break
                             val = cell.value
                             
+                            # Excel hücre biçimlendirmesinden (Format) Yuan veya Euro tespiti (LCID tabanlı ek koruma)
                             if idx == fiyat_idx and val is not None:
                                 fmt = str(cell.number_format).upper()
-                                if any(x in fmt for x in ['¥', '￥', 'CNY', '元', '804']):
+                                if any(x in fmt for x in ['¥', '￥', 'CNY', '元', '804', '2052', 'E01']):
                                     val = f"¥{val}"
-                                elif any(x in fmt for x in ['€', 'EUR']):
+                                elif any(x in fmt for x in ['€', 'EUR', '40C']):
                                     val = f"€{val}"
                                     
                             row_data.append(val)
@@ -276,7 +278,6 @@ def get_all_data(rates):
     
     full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
     if not full_df.empty:
-        # Metinsel YYYY-MM-DD formatından ilk 7 karakteri keserek hatasız YYYY-MM periyodu türetiyoruz
         def get_clean_period(x):
             if x == "BELİRTİLMEMİŞ" or len(x) < 7:
                 return "Bilinmeyen Dönem"
@@ -338,17 +339,20 @@ if page == "1. Genel Dashboard":
         df_trend_firma = df_2026[df_2026['FIRMA'].isin(top_5_firmalar)]
         trend_firma = df_trend_firma.groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
         fig5 = px.line(trend_firma, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='FIRMA', title="5. Aylık Firma Harcama Trendi (En Büyük 5 Firma)", markers=True)
+        fig5.update_layout(xaxis_type='category') # Kural 2: Zaman ekseni kilitlenmesini engeller
         g5.plotly_chart(fig5, use_container_width=True)
         
         top_5_turler = df_2026.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).index
         df_trend_tur = df_2026[df_2026['TUR'].isin(top_5_turler)]
         trend_tur = df_trend_tur.groupby(['SIPARIS_AY', 'TUR'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
         fig6 = px.line(trend_tur, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='TUR', title="6. Aylık Tür Harcama Trendi (En Büyük 5 Tür)", markers=True)
+        fig6.update_layout(xaxis_type='category')
         g6.plotly_chart(fig6, use_container_width=True)
 
         g7, g8 = st.columns(2)
         trend_total = df_2026.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
         fig7 = px.line(trend_total, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title="7. Aylık Toplam Sermaye Akışı ($)", markers=True)
+        fig7.update_layout(xaxis_type='category')
         g7.plotly_chart(fig7, use_container_width=True)
         
         df_barkod_temiz = df_dashboard[(df_dashboard['BARKOD'] != "BELİRTİLMEMİŞ") & (df_dashboard['BARKOD'].str.strip() != "")]
@@ -356,7 +360,7 @@ if page == "1. Genel Dashboard":
         fig8 = px.bar(top_barcode, x='MALIN CINSI', y='ADET', title="8. Barkod Bazlı Top 10 Ürün (Gerçek Barkodlar)", text='BARKOD', color='ADET')
         g8.plotly_chart(fig8, use_container_width=True)
 
-# --- SAYFA 2: FİRMA BAZLI ANALİZ (KUSURSUZLAŞTIRILAN ALAN) ---
+# --- SAYFA 2: FİRMA BAZLI ANALİZ ---
 elif page == "2. Firma Bazlı Analiz":
     st.header("🏢 Firma Bazlı Analiz")
     
@@ -397,10 +401,11 @@ elif page == "2. Firma Bazlı Analiz":
             else:
                 col_a.info("Grafik için yeterli veri yok.")
             
-            # AECOOLY Grafik Hatasının Çözüldüğü Sıralı Trend Alanı
+            # KESİN ÇÖZÜM: AECOOLY ve Diğer Firmaların Grafiğini Sabitleyen Alan
             trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
             if not trend_data_all.empty and trend_data_all['TOPLAM_SERMAYE'].sum() > 0:
                 fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE')
+                fig_b.update_layout(xaxis_type='category') # Bozuk veya belirsiz tarih metinlerinin grafiği ezmesini önler
                 col_b.plotly_chart(fig_b, use_container_width=True)
             else:
                 col_b.info("Zaman trendi grafik verisi bulunamadı.")
@@ -422,7 +427,6 @@ elif page == "2. Firma Bazlı Analiz":
             st.markdown(f"**{selected_firma} Veri Listesi:**")
             display_df_formatted = display_df.copy()
             
-            # ANNY'deki gibi AECOOLY ve CATHY fiyatlarını da tabloda doğrudan USD sembolü ile gösteriyoruz
             display_df_formatted['FIYAT'] = display_df_formatted['FIYAT'].map('{:,.2f} $'.format)
             display_df_formatted['TOPLAM_SERMAYE'] = display_df_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
             
