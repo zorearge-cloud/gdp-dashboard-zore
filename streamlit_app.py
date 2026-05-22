@@ -26,7 +26,8 @@ EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', '
 HEADER_MAP = {
     'SIPARIS TARIHI': 'SIPARIS_TARIHI', 'SIPARIS_TARIHI': 'SIPARIS_TARIHI',
     'FIRMA': 'FIRMA', 'TUR': 'TUR', 'BARKOD': 'BARKOD',
-    'MALIN CINSI': 'MALIN CINSI', 'ADET': 'ADET', 'FIYAT': 'FIYAT',
+    'MALIN CINSI': 'MALIN CINSI', 
+    'ADET': 'ADET', 'FIYAT': 'FIYAT',
     'YUKLEME TARIHI': 'YUKLEME_TARIHI', 'YUKLEME_TARIHI': 'YUKLEME_TARIHI'
 }
 
@@ -97,6 +98,7 @@ def clean_data(df, rates):
         def parse_price_details(row):
             val = row['FIYAT']
             firma_name = str(row['FIRMA']).upper().strip()
+        
             if pd.isna(val):
                 return 0.0, 0.0, '$'
             
@@ -130,7 +132,7 @@ def clean_data(df, rates):
                 numeric_price = float(val_str)
             except:
                 numeric_price = 0.0
-                
+       
             if currency == 'CNY':
                 usd_price = numeric_price * rates["CNY_TO_USD"]
             elif currency == 'EUR':
@@ -328,7 +330,7 @@ if page == "1. Genel Dashboard":
                 c6_series.append({"name": t, "type": "line", "smooth": True, "showSymbol": False, "data": [round(x,2) for x in data]})
                 
             c7_data = [round(trend_total[trend_total['SIPARIS_AY'] == m]['TOPLAM_SERMAYE'].sum(), 2) if m in trend_total['SIPARIS_AY'].values else 0 for m in curr_months]
-            
+             
             timeline_matrix[month] = {
                 "c1_names": c1_df['MALIN CINSI'].tolist(), "c1_vals": c1_df['ADET'].tolist(),
                 "c2_names": c2_df['MALIN CINSI'].tolist(), "c2_vals": c2_df['TOPLAM_SERMAYE'].tolist(),
@@ -358,11 +360,9 @@ if page == "1. Genel Dashboard":
                 
                 /* EKRAN DÖNMESİ İPTAL EDİLDİ - SADECE NEON RENK GEÇİŞİ KALDI (SABİT EKRAN) */
                 .panel { 
-                    background: rgba(2, 6, 19, 0.85); 
-                    border: 2px solid #00f3ff; 
+                    background: rgba(2, 6, 19, 0.85); border: 2px solid #00f3ff; 
                     border-radius: 12px; 
-                    box-shadow: 0 0 25px rgba(0, 243, 255, 0.6), inset 0 0 20px rgba(0, 243, 255, 0.3); 
-                    height: 380px; 
+                    box-shadow: 0 0 25px rgba(0, 243, 255, 0.6), inset 0 0 20px rgba(0, 243, 255, 0.3); height: 380px; 
                     padding: 15px; 
                     animation: cyberPulse 8s linear infinite;
                 }
@@ -379,8 +379,7 @@ if page == "1. Genel Dashboard":
             <div class="header-box">
                 <h2 class="matrix-title">🎬 ZORE CYBERSPACE ZAMAN MAKİNESİ (OTOMATİK SENKRON DÖNGÜ)</h2>
                 <div class="matrix-subtitle">
-                    SİSTEM DURUMU: <span style="color: #00ff66;">AKTİF</span> | 
-                    ZAMAN ÇİZELGESİ TARANIYOR: <span id="active-period" class="period-badge">BAŞLIYOR...</span>
+                    SİSTEM DURUMU: <span style="color: #00ff66;">AKTİF</span> | ZAMAN ÇİZELGESİ TARANIYOR: <span id="active-period" class="period-badge">BAŞLIYOR...</span>
                 </div>
             </div>
             
@@ -404,7 +403,6 @@ if page == "1. Genel Dashboard":
                 const textStyle = { color: '#ffffff', fontSize: 13, fontWeight: 'bold', textShadowBlur: 10, textShadowColor: '#00f3ff' };
                 const axisLabelStyle = { color: '#00f3ff', fontSize: 11, width: 120, overflow: 'truncate', textShadowBlur: 8, textShadowColor: '#00f3ff' };
                 const splitLineStyle = { lineStyle: { color: 'rgba(0, 243, 255, 0.2)', shadowBlur: 10, shadowColor: '#00f3ff' } };
-
                 // Grafikleri Başlat
                 const charts = {
                     c1: echarts.init(document.getElementById('c1')), c2: echarts.init(document.getElementById('c2')),
@@ -412,7 +410,7 @@ if page == "1. Genel Dashboard":
                     c5: echarts.init(document.getElementById('c5')), c6: echarts.init(document.getElementById('c6')),
                     c7: echarts.init(document.getElementById('c7')), c8: echarts.init(document.getElementById('c8'))
                 };
-
+                
                 // Sabit Seçenekleri Ayarla (Fütüristik Donut Yapıları Eklendi)
                 charts.c1.setOption({ title: { text: '1. En Çok Sipariş Edilen İlk 5 Ürün (Adet)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '25%', right: '5%', bottom: '5%', top: '15%' }, xAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle }, yAxis: { type: 'category', axisLabel: axisLabelStyle } });
                 charts.c2.setOption({ title: { text: '2. En Çok Sermaye Yatırılan İlk 5 Ürün ($)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '25%', right: '5%', bottom: '5%', top: '15%' }, xAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle }, yAxis: { type: 'category', axisLabel: axisLabelStyle } });
@@ -462,19 +460,55 @@ if page == "1. Genel Dashboard":
                 charts.c5.setOption({ title: { text: '5. Aylık Firma Harcama Trendi (Top 5)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '10%', right: '5%', bottom: '10%', top: '20%' }, xAxis: { type: 'category', axisLabel: axisLabelStyle }, yAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle } });
                 charts.c6.setOption({ title: { text: '6. Aylık Tür Harcama Trendi (Top 5)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '10%', right: '5%', bottom: '10%', top: '20%' }, xAxis: { type: 'category', axisLabel: axisLabelStyle }, yAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle } });
                 charts.c7.setOption({ title: { text: '7. Aylık Toplam Sermaye Akışı ($)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '10%', right: '5%', bottom: '10%', top: '15%' }, xAxis: { type: 'category', axisLabel: axisLabelStyle, splitLine: splitLineStyle }, yAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle }, series: [{ type: 'line', smooth: true, areaStyle: { color: 'rgba(0, 243, 255, 0.3)' }, lineStyle: { color: '#00f3ff', width: 4, shadowBlur: 20, shadowColor: '#00f3ff' }, itemStyle: { color: '#00f3ff', shadowBlur: 15, shadowColor: '#00f3ff' } }] });
-                charts.c8.setOption({ title: { text: '8. Barkod Bazlı İlk 5 Ürün (Adet)', textStyle: textStyle }, tooltip: { trigger: 'axis' }, grid: { left: '20%', right: '5%', bottom: '5%', top: '15%' }, xAxis: { type: 'value', splitLine: splitLineStyle, axisLabel: axisLabelStyle }, yAxis: { type: 'category', axisLabel: axisLabelStyle } });
+                
+                // 8. Grafik Donut Yapısı (Sabit Verili Şık Tasarım)
+                charts.c8.setOption({ 
+                    title: { text: '8. Barkod Bazlı İlk 5 Ürün (Adet Toplam)', textStyle: textStyle }, 
+                    tooltip: { trigger: 'item' },
+                    color: ['#ff00ff', '#00f3ff', '#00ff66', '#ffaa00', '#aa00ff'], 
+                    series: [
+                        { 
+                            type: 'pie', radius: ['45%', '70%'], center: ['50%', '55%'], 
+                            itemStyle: { borderRadius: 5, borderColor: '#03050a', borderWidth: 2, shadowBlur: 20, shadowColor: '#ff00ff' }, 
+                            label: { color: '#fff', fontSize: 11, formatter: '{b}\\n{c} Adet', textShadowBlur: 8, textShadowColor: '#ff00ff' },
+                            labelLine: { lineStyle: { color: '#ff00ff', width: 2 } }
+                        },
+                        {
+                            type: 'pie', radius: ['75%', '76%'], center: ['50%', '55%'],
+                            itemStyle: { color: 'transparent', borderColor: '#00f3ff', borderWidth: 2, type: 'dashed' },
+                            label: { show: false }, labelLine: { show: false }, data: [{value: 1}]
+                        }
+                    ] 
+                });
 
                 // Renk Paletleri (Daha Parlak ve Fütüristik)
                 const gradBlue = new echarts.graphic.LinearGradient(0,0,1,0, [{offset:0, color:'#0011ff'}, {offset:1, color:'#00f3ff'}]);
                 const gradOrange = new echarts.graphic.LinearGradient(0,0,1,0, [{offset:0, color:'#ff3300'}, {offset:1, color:'#ffcc00'}]);
                 const gradPink = new echarts.graphic.LinearGradient(0,0,1,0, [{offset:0, color:'#aa00ff'}, {offset:1, color:'#ff00ff'}]);
+                
+                // 8. Grafik (Barkod) için Genel Toplam Verisini Ayarla ve Sabitle (5 aya göre değişmez)
+                const totalMonthData = timelineMatrix[monthsSequence[monthsSequence.length - 1]];
+                const c8PieData = totalMonthData.c8_names.map((name, i) => ({ name: name, value: totalMonthData.c8_vals[i] }));
+                charts.c8.setOption({ series: [{ data: c8PieData }, {}] });
+
+                // 8. Grafik için Dönme Animasyonu
+                let angle8 = 0;
+                setInterval(() => {
+                    angle8 -= 1;
+                    charts.c8.setOption({
+                        series: [
+                            { startAngle: angle8 },       // Ana pasta döner
+                            { startAngle: angle8 * 3 }    // Dış fütüristik halka daha hızlı döner
+                        ]
+                    });
+                }, 50);
 
                 function updateDashboard() {
                     const month = monthsSequence[currentIndex];
                     const data = timelineMatrix[month];
                     
                     document.getElementById('active-period').innerText = (currentIndex === monthsSequence.length - 1) ? month + " (GENEL TOPLAM)" : month;
-
+                    
                     // Serilere Neon Gölgeler Ekleniyor
                     charts.c1.setOption({ yAxis: { data: data.c1_names }, series: [{ type: 'bar', data: data.c1_vals, itemStyle: { color: gradBlue, borderRadius: [0,4,4,0], shadowBlur: 15, shadowColor: '#00f3ff' } }] });
                     charts.c2.setOption({ yAxis: { data: data.c2_names }, series: [{ type: 'bar', data: data.c2_vals, itemStyle: { color: gradOrange, borderRadius: [0,4,4,0], shadowBlur: 15, shadowColor: '#ffaa00' } }] });
@@ -486,11 +520,9 @@ if page == "1. Genel Dashboard":
                     // Line serileri için parlama efektleri
                     const c5_styled = data.c5_series.map(s => ({...s, lineStyle: {width: 3, shadowBlur: 15, shadowColor: '#00f3ff'}}));
                     const c6_styled = data.c6_series.map(s => ({...s, lineStyle: {width: 3, shadowBlur: 15, shadowColor: '#ff00ff'}}));
-
                     charts.c5.setOption({ xAxis: { data: data.c7_months }, series: c5_styled });
                     charts.c6.setOption({ xAxis: { data: data.c7_months }, series: c6_styled });
                     charts.c7.setOption({ xAxis: { data: data.c7_months }, series: [{ data: data.c7_data }] });
-                    charts.c8.setOption({ yAxis: { data: data.c8_names }, series: [{ type: 'bar', data: data.c8_vals, itemStyle: { color: gradPink, borderRadius: [0,4,4,0], shadowBlur: 15, shadowColor: '#ff00ff' } }] });
                 }
 
                 function loopEngine() {
@@ -507,7 +539,7 @@ if page == "1. Genel Dashboard":
 
                 // Döngüyü Başlat
                 setTimeout(loopEngine, 500);
-
+                
                 // Ekran yeniden boyutlandırma
                 window.addEventListener('resize', () => {
                     Object.values(charts).forEach(c => c.resize());
@@ -519,8 +551,8 @@ if page == "1. Genel Dashboard":
         
         html_ready = html_template.replace("__TIMELINE_MATRIX__", json.dumps(timeline_matrix)).replace("__MONTHS_SEQUENCE__", json.dumps(months_sequence))
         
-        # Matrix arayüzünü Streamlit'e ekleme (Geniş ve uzun bir alan sağlıyoruz)
-        st.components.v1.html(html_ready, height=1700, scrolling=False)
+        # Matrix arayüzünü Streamlit'e ekleme (Geniş ve uzun bir alan sağlıyoruz, kesilmeyi önlemek için yükseklik 1950'ye çıkartıldı)
+        st.components.v1.html(html_ready, height=1950, scrolling=False)
 
 
 # --- SAYFA 2: FİRMA BAZLI ANALİZ ---
