@@ -512,7 +512,7 @@ elif page == "2. Firma Bazlı Analiz":
                 display_df_formatted = display_df_formatted.drop(columns=drop_cols)
             st.dataframe(display_df_formatted, use_container_width=True)
 
-# --- SAYFA 3: HAM VERİ ---
+# --- SAYFA 3: HAM VERİ ----
 elif page == "3. Ham Veri":
     st.header("🗄️ Ham Veri Havuzu")
     if df_dashboard.empty:
