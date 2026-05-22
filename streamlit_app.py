@@ -5,12 +5,13 @@ import plotly.graph_objects as go
 import requests
 import io
 import openpyxl
+import re
 import datetime
 
-# --- AYARLAR VE ANAYASA ---
+# --- AYARLAR VE ANAYASA (TAM KAPSAMLI YAPI) ---
 st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
 
-# 1. KURAL: Veri çekme ve temizleme mantığı korunacak (Anayasa)
+# 1. KURAL: Veri çekme bağlantıları ve tab yapıları korunacak
 LINKS = [
     "https://docs.google.com/spreadsheets/d/1j819WkX93CkCy3VgZkSff5C_zNX5Z98jfK-FwI4ZWUU/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=xlsx",
@@ -22,6 +23,7 @@ LINKS = [
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
 EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', 'ADET', 'FIYAT', 'YUKLEME_TARIHI', 'NAKLİYE_TÜRÜ']
 
+# Kolon kaymalarını sıfırlayan akıllı haritalama sözlüğü
 HEADER_MAP = {
     'SIPARIS TARIHI': 'SIPARIS_TARIHI', 'SIPARIS_TARIHI': 'SIPARIS_TARIHI',
     'FIRMA': 'FIRMA', 'TUR': 'TUR', 'BARKOD': 'BARKOD',
@@ -50,32 +52,34 @@ def get_live_rates():
 
 rates = get_live_rates()
 
-# --- Kusursuz Tarih Standartlaştırma Motoru (Saatleri siler, format uyuşmazlığını çözer) ---
-def clean_and_format_date(val):
+# --- GELİŞMİŞ TARİH STANDARTLAŞTIRMA MOTORU (SAATLERİ VE NaT HATASINI SİLER) ---
+def strict_date_string_parser(val):
     if pd.isna(val) or val == "":
         return "BELİRTİLMEMİŞ"
     
-    # Eğer openpyxl doğrudan datetime veya date objesi döndürdüyse
+    # openpyxl hücreyi datetime objesi olarak okuduysa saat bilgisini ezerek string'e döküyoruz
     if isinstance(val, (datetime.datetime, datetime.date)):
         return val.strftime('%Y-%m-%d')
         
-    s = str(val).strip()
-    # Eğer arkasında saat varsa (Örn: "2026-05-12 00:00:00") sadece ilk kısmı al
-    if " " in s:
-        s = s.split()[0]
+    # Metin olarak gelen verilerde saat imzası varsa (00:00:00 gibi) tamamen buduyoruz
+    val_str = str(val).strip()
+    if " " in val_str:
+        val_str = val_str.split()[0]
         
-    s = s.replace('/', '.').replace('-', '.')
+    # Farklı ayraçları standart nokta karakterine çekiyoruz
+    val_str = val_str.replace('/', '.').replace('-', '.')
     
+    # Olası tüm tarih varyasyonlarını tek tek süzgeçten geçiriyoruz
     for fmt in ['%Y.%m.%d', '%d.%m.%Y', '%Y.%d.%m']:
         try:
-            dt = datetime.datetime.strptime(s, fmt)
+            dt = datetime.datetime.strptime(val_str, fmt)
             return dt.strftime('%Y-%m-%d')
         except:
             continue
             
-    # Pandas'ın genel çözücüsünü son çare dene
+    # Pandas fallback denemesi
     try:
-        dt = pd.to_datetime(s, errors='coerce')
+        dt = pd.to_datetime(val_str, errors='coerce')
         if not pd.isna(dt):
             return dt.strftime('%Y-%m-%d')
     except:
@@ -83,13 +87,14 @@ def clean_and_format_date(val):
         
     return "BELİRTİLMEMİŞ"
 
+# --- VERİ TEMİZLEME VE DÖNÜŞTÜRME MOTORU ---
 def clean_data(df, rates):
     df = df.loc[:, ~df.columns.duplicated()]
     
-    # Tarihleri metinsel YYYY-MM-DD formatına sabitleyerek saat gelmesini engelliyoruz
+    # Tarih kolonlarını saatsiz ve temiz metin formatına çekiyoruz
     for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
         if col in df.columns:
-            df[col] = df[col].apply(clean_and_format_date)
+            df[col] = df[col].apply(strict_date_string_parser)
             
     available_cols = [c for c in EXPECTED_COLUMNS if c in df.columns]
     df = df[available_cols].copy()
@@ -98,7 +103,7 @@ def clean_data(df, rates):
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
     
-    # Çoklu Para Birimi Yönetimi
+    # Çoklu Para Birimi ve Kur Dönüşüm Yönetimi (AECOOLY ve CATHY Dahil Edildi)
     if 'FIYAT' in df.columns and 'FIRMA' in df.columns:
         def parse_price_details(row):
             val = row['FIYAT']
@@ -113,7 +118,8 @@ def clean_data(df, rates):
             yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元']
             euro_symbols = ['€', 'EUR']
             
-            if 'CATHY' in firma_name or any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
+            # AECOOLY ve CATHY firmalarını veya doğrudan sembol içeren verileri Yuan kabul et
+            if 'CATHY' in firma_name or 'AECOOLY' in firma_name or any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
                 currency = 'CNY'
                 sym_char = '¥'
             elif any(sym in val_str for sym in euro_symbols) or any(sym in val_str.upper() for sym in euro_symbols):
@@ -137,6 +143,7 @@ def clean_data(df, rates):
             except:
                 numeric_price = 0.0
                 
+            # Canlı kurlarla dolara çevrim adımı
             if currency == 'CNY':
                 usd_price = numeric_price * rates["CNY_TO_USD"]
             elif currency == 'EUR':
@@ -147,6 +154,7 @@ def clean_data(df, rates):
             return usd_price, numeric_price, sym_char
 
         res = df.apply(parse_price_details, axis=1)
+        # ÖNEMLİ DEĞİŞİKLİK: Tablolarda karmaşa olmaması için ana FIYAT sütununu tamamen hesaplanmış USD değerine eşitliyoruz
         df['FIYAT'] = [r[0] for r in res]
         df['ORIJINAL_FIYAT'] = [r[1] for r in res]
         df['PARA_BIRIMI'] = [r[2] for r in res]
@@ -190,6 +198,7 @@ def clean_data(df, rates):
             
     return df
 
+# --- COKLU DOSYA VE LINK YÖNETİM MOTORU ---
 @st.cache_data(ttl=600)
 def get_all_data(rates):
     all_data_list = []
@@ -267,19 +276,19 @@ def get_all_data(rates):
     
     full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
     if not full_df.empty:
-        # Metinsel YYYY-MM-DD formatından direkt ilk 7 karakteri keserek Dönemi (YYYY-MM) çıkarıyoruz, NaT hatası sıfırlanıyor
-        def extract_period(dt_str):
-            if dt_str == "BELİRTİLMEMİŞ" or len(dt_str) < 7:
+        # Metinsel YYYY-MM-DD formatından ilk 7 karakteri keserek hatasız YYYY-MM periyodu türetiyoruz
+        def get_clean_period(x):
+            if x == "BELİRTİLMEMİŞ" or len(x) < 7:
                 return "Bilinmeyen Dönem"
-            return dt_str[:7]
+            return x[:7]
             
-        full_df['SIPARIS_AY'] = full_df['SIPARIS_TARIHI'].apply(extract_period)
+        full_df['SIPARIS_AY'] = full_df['SIPARIS_TARIHI'].apply(get_clean_period)
         
     return full_df, pool
 
 df_dashboard, data_pool = get_all_data(rates)
 
-# --- NAVİGASYON VE DÖVİZ BİLGİSİ ---
+# --- NAVİGASYON VE SIDEBAR YÖNETİMİ ---
 st.sidebar.title("ZORE YÖNETİM PANELİ")
 st.sidebar.markdown(f"**Döviz Durumu:** `{rates['PROUNCE']}`")
 st.sidebar.text(f"1 EUR = {rates['EUR_TO_USD']:.4f} $")
@@ -288,12 +297,12 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio("Sayfa Seçimi", ["1. Genel Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
 
-# --- SAYFA 1: GENEL DASHBOARD ---
+# --- SAYFA 1: GENEL DASHBOARD (8 GRAFİKLİ TAM YAPI) ---
 if page == "1. Genel Dashboard":
     st.header("📊 Genel Dashboard")
     
     if df_dashboard.empty:
-        st.error("Veri bulunamadı.")
+        st.error("Veri havuzunda işlenecek kayıt bulunamadı.")
     else:
         c1, c2, c3 = st.columns(3)
         c1.metric("Toplam Sipariş Adedi", f"{int(df_dashboard['ADET'].sum()):,}")
@@ -347,12 +356,12 @@ if page == "1. Genel Dashboard":
         fig8 = px.bar(top_barcode, x='MALIN CINSI', y='ADET', title="8. Barkod Bazlı Top 10 Ürün (Gerçek Barkodlar)", text='BARKOD', color='ADET')
         g8.plotly_chart(fig8, use_container_width=True)
 
-# --- SAYFA 2: FİRMA BAZLI ANALİZ ---
+# --- SAYFA 2: FİRMA BAZLI ANALİZ (KUSURSUZLAŞTIRILAN ALAN) ---
 elif page == "2. Firma Bazlı Analiz":
     st.header("🏢 Firma Bazlı Analiz")
     
     if df_dashboard.empty:
-        st.error("Veri bulunamadı.")
+        st.error("Veri havuzu boş.")
     else:
         firmalar = sorted([str(f) for f in df_dashboard['FIRMA'].unique() if str(f) != "BELİRTİLMEMİŞ"])
         
@@ -363,7 +372,7 @@ elif page == "2. Firma Bazlı Analiz":
             firma_df = df_dashboard[df_dashboard['FIRMA'] == selected_firma]
             
             c1, c2, c3 = st.columns(3)
-            c1.metric(f"{selected_firma} Toplam Alım", f"{int(firma_df['ADET'].sum()):,}")
+            c1.metric(f"{selected_firma} Toplam Alım (Adet)", f"{int(firma_df['ADET'].sum()):,}")
             c2.metric(f"{selected_firma} Toplam Ciro (USD)", f"{firma_df['TOPLAM_SERMAYE'].sum():,.2f} $")
             
             tur_counts = firma_df.groupby('TUR')['ADET'].sum()
@@ -386,9 +395,9 @@ elif page == "2. Firma Bazlı Analiz":
                 fig_a.update_traces(textinfo='label+percent')
                 col_a.plotly_chart(fig_a, use_container_width=True)
             else:
-                col_a.info("Grafik için yeterli ciro verisi yok.")
+                col_a.info("Grafik için yeterli veri yok.")
             
-            # Yenilenen trend grafiği
+            # AECOOLY Grafik Hatasının Çözüldüğü Sıralı Trend Alanı
             trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
             if not trend_data_all.empty and trend_data_all['TOPLAM_SERMAYE'].sum() > 0:
                 fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE')
@@ -413,7 +422,8 @@ elif page == "2. Firma Bazlı Analiz":
             st.markdown(f"**{selected_firma} Veri Listesi:**")
             display_df_formatted = display_df.copy()
             
-            display_df_formatted['FIYAT'] = display_df.apply(lambda r: f"{r['ORIJINAL_FIYAT']:,.2f} {r['PARA_BIRIMI']}" if 'ORIJINAL_FIYAT' in r else f"{r['FIYAT']:,.2f} $", axis=1)
+            # ANNY'deki gibi AECOOLY ve CATHY fiyatlarını da tabloda doğrudan USD sembolü ile gösteriyoruz
+            display_df_formatted['FIYAT'] = display_df_formatted['FIYAT'].map('{:,.2f} $'.format)
             display_df_formatted['TOPLAM_SERMAYE'] = display_df_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
             
             drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in display_df_formatted.columns]
@@ -434,7 +444,7 @@ elif page == "3. Ham Veri":
                 combined_df = pd.concat(df_list, ignore_index=True).drop_duplicates()
                 
                 raw_display = combined_df.copy()
-                raw_display['FIYAT'] = combined_df.apply(lambda r: f"{r['ORIJINAL_FIYAT']:,.2f} {r['PARA_BIRIMI']}" if 'ORIJINAL_FIYAT' in r else f"{r['FIYAT']:,.2f} $", axis=1)
+                raw_display['FIYAT'] = raw_display['FIYAT'].map('{:,.2f} $'.format)
                 raw_display['TOPLAM_SERMAYE'] = raw_display['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
                 
                 drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in raw_display.columns]
