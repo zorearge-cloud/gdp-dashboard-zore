@@ -527,10 +527,10 @@ if page == "1. Siber Dashboard":
                 };
 
                 // GRAFİKLERİN ÇİZİMİ (İstediğin Gibi Yerleri Değiştirildi)
-                charts.c3.setOption(getDonutOption('3. Harcama Yapılan İlk 5 Firma (USD)', c3_data));
-                charts.c4.setOption(getDonutOption('4. Tür Bazlı Harcama Dağılımı', c4_data));
-                charts.c1.setOption(getBarOption('1. En Çok Sipariş Edilen İlk 10 Ürün (Adet)', data.c1_names, data.c1_vals, '#00f3ff'));
-                charts.c2.setOption(getBarOption('2. En Çok Sermaye Yatırılan İlk 10 Ürün ($)', data.c2_names, data.c2_vals, '#ff00ff'));
+                charts.c3.setOption(getDonutOption('1. Harcama Yapılan İlk 5 Firma (USD)', c3_data));
+                charts.c4.setOption(getDonutOption('2. Tür Bazlı Harcama Dağılımı', c4_data));
+                charts.c1.setOption(getBarOption('3. En Çok Sipariş Edilen İlk 10 Ürün (Adet)', data.c1_names, data.c1_vals, '#00f3ff'));
+                charts.c2.setOption(getBarOption('4. En Çok Sermaye Yatırılan İlk 10 Ürün ($)', data.c2_names, data.c2_vals, '#ff00ff'));
                 
                 // 5. Grafik: 5 Aylık Harcama Trend Akışı
                 charts.c5.setOption(getLineOption('5. Aylık Toplam Sermaye Akışı (Son 5 Ay)', data.c5_months, [
@@ -566,7 +566,7 @@ if page == "1. Siber Dashboard":
         """
         
         html_ready = html_template.replace("__TIMELINE_MATRIX__", json.dumps(timeline_matrix)).replace("__MONTHS_SEQUENCE__", json.dumps(months_sequence))
-        st.components.v1.html(html_ready, height=1600, scrolling=False)
+        st.components.v1.html(html_ready, height=1700, scrolling=False)
 
 
 # --- SAYFA 2: FİRMA BAZLI ANALİZ ---
