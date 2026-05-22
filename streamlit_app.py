@@ -23,7 +23,6 @@ LINKS = [
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
 EXPECTED_COLUMNS = ['SIPARIS_TARIHI', 'FIRMA', 'TUR', 'BARKOD', 'MALIN CINSI', 'ADET', 'FIYAT', 'YUKLEME_TARIHI', 'NAKLİYE_TÜRÜ']
 
-# Kolon kaymalarını sıfırlayan akıllı haritalama sözlüğü
 HEADER_MAP = {
     'SIPARIS TARIHI': 'SIPARIS_TARIHI', 'SIPARIS_TARIHI': 'SIPARIS_TARIHI',
     'FIRMA': 'FIRMA', 'TUR': 'TUR', 'BARKOD': 'BARKOD',
@@ -52,46 +51,34 @@ def get_live_rates():
 
 rates = get_live_rates()
 
-# --- GELİŞMİŞ TARİH STANDARTLAŞTIRMA MOTORU (SAATLERİ VE NaT HATASINI SİLER) ---
+# --- GELİŞMİŞ TARİH STANDARTLAŞTIRMA MOTORU ---
 def strict_date_string_parser(val):
     if pd.isna(val) or val == "":
         return "BELİRTİLMEMİŞ"
-    
-    # openpyxl veya pandas hücreyi otomatik datetime objesi yaptıysa saat bilgisini ezerek temizliyoruz
     if hasattr(val, 'strftime'):
         return val.strftime('%Y-%m-%d')
-        
-    # Metin olarak gelen verilerde saat imzası varsa (00:00:00 gibi) tamamen buduyoruz
     val_str = str(val).strip()
     if " " in val_str:
         val_str = val_str.split()[0]
-        
-    # Farklı ayraçları standart nokta karakterine çekiyoruz
     val_str = val_str.replace('/', '.').replace('-', '.')
-    
-    # Olası tüm tarih varyasyonlarını tek tek süzgeçten geçiriyoruz
     for fmt in ['%Y.%m.%d', '%d.%m.%Y', '%Y.%d.%m']:
         try:
             dt = datetime.datetime.strptime(val_str, fmt)
             return dt.strftime('%Y-%m-%d')
         except:
             continue
-            
-    # Küresel fallback denemesi
     try:
         dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
         if not pd.isna(dt):
             return dt.strftime('%Y-%m-%d')
     except:
         pass
-        
     return "BELİRTİLMEMİŞ"
 
 # --- VERİ TEMİZLEME VE DÖNÜŞTÜRME MOTORU ---
 def clean_data(df, rates):
     df = df.loc[:, ~df.columns.duplicated()]
     
-    # Tarih kolonlarını saatsiz ve temiz metin formatına çekiyoruz
     for col in ['SIPARIS_TARIHI', 'YUKLEME_TARIHI']:
         if col in df.columns:
             df[col] = df[col].apply(strict_date_string_parser)
@@ -103,7 +90,6 @@ def clean_data(df, rates):
     if 'ADET' in df.columns:
         df['ADET'] = pd.to_numeric(df['ADET'], errors='coerce').fillna(0)
     
-    # Çoklu Para Birimi ve Kur Dönüşüm Yönetimi (Tüm Gözden Kaçan Firmalar İçin Güçlendirildi)
     if 'FIYAT' in df.columns and 'FIRMA' in df.columns:
         def parse_price_details(row):
             val = row['FIYAT']
@@ -115,11 +101,9 @@ def clean_data(df, rates):
             currency = 'USD'
             sym_char = '$'
             
-            # Genişletilmiş döviz sembol listesi
             yuan_symbols = ['¥', '￥', 'CNY', 'RMB', '元', 'CHINESE']
             euro_symbols = ['€', 'EUR', 'EURO']
             
-            # Firma isminden, hücre içeriğinden veya gizli karakter kodlarından yakalama mantığı
             if 'CATHY' in firma_name or 'AECOOLY' in firma_name or any(sym in val_str for sym in yuan_symbols) or any(sym in val_str.upper() for sym in yuan_symbols):
                 currency = 'CNY'
                 sym_char = '¥'
@@ -144,7 +128,6 @@ def clean_data(df, rates):
             except:
                 numeric_price = 0.0
                 
-            # Canlı kurlarla dolara çevrim adımı
             if currency == 'CNY':
                 usd_price = numeric_price * rates["CNY_TO_USD"]
             elif currency == 'EUR':
@@ -155,7 +138,6 @@ def clean_data(df, rates):
             return usd_price, numeric_price, sym_char
 
         res = df.apply(parse_price_details, axis=1)
-        # Tüm ara yüzlerde ve raporlarda ANNY firmasında olduğu gibi net USD ($) basılması sağlanıyor
         df['FIYAT'] = [r[0] for r in res]
         df['ORIJINAL_FIYAT'] = [r[1] for r in res]
         df['PARA_BIRIMI'] = [r[2] for r in res]
@@ -191,7 +173,6 @@ def clean_data(df, rates):
                     if s in ['nan', 'None', '']:
                         return "BELİRTİLMEMİŞ"
                     return s
-                
                 df['BARKOD'] = df['BARKOD'].apply(strict_barcode_clean)
             else:
                 val_series = df[text_col].fillna("BELİRTİLMEMİŞ").astype(str).str.strip()
@@ -242,7 +223,6 @@ def get_all_data(rates):
                                 break
                             val = cell.value
                             
-                            # Excel hücre biçimlendirmesinden (Format) Yuan veya Euro tespiti (LCID tabanlı ek koruma)
                             if idx == fiyat_idx and val is not None:
                                 fmt = str(cell.number_format).upper()
                                 if any(x in fmt for x in ['¥', '￥', 'CNY', '元', '804', '2052', 'E01']):
@@ -282,12 +262,31 @@ def get_all_data(rates):
             if x == "BELİRTİLMEMİŞ" or len(x) < 7:
                 return "Bilinmeyen Dönem"
             return x[:7]
-            
         full_df['SIPARIS_AY'] = full_df['SIPARIS_TARIHI'].apply(get_clean_period)
         
     return full_df, pool
 
 df_dashboard, data_pool = get_all_data(rates)
+
+# --- GLOBAL ANIMASYON VE GÖRSEL STİL ENJEKTÖRÜ ---
+def apply_premium_animation(fig, chart_type="bar"):
+    fig.update_layout(
+        transition={
+            'duration': 800,
+            'easing': 'cubic-in-out'
+        },
+        modebar_remove=['zoom', 'pan', 'select', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d'],
+        font=dict(family="Arial, sans-serif", size=12)
+    )
+    if chart_type == "line":
+        fig.update_layout(hovermode="x unified")
+        fig.update_traces(hoverjoin_rules=None, marker=dict(size=7, line=dict(width=1, color='white')))
+    elif chart_type == "pie":
+        fig.update_traces(marker=dict(line=dict(color='#ffffff', width=2)))
+    elif chart_type == "bar":
+        fig.update_layout(hovermode="closest")
+        fig.update_traces(marker=dict(line=dict(width=0.5, color='#ffffff')))
+    return fig
 
 # --- NAVİGASYON VE SIDEBAR YÖNETİMİ ---
 st.sidebar.title("ZORE YÖNETİM PANELİ")
@@ -298,7 +297,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio("Sayfa Seçimi", ["1. Genel Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
 
-# --- SAYFA 1: GENEL DASHBOARD (8 GRAFİKLİ TAM YAPI) ---
+# --- SAYFA 1: GENEL DASHBOARD (ANIMASYONLU) ---
 if page == "1. Genel Dashboard":
     st.header("📊 Genel Dashboard")
     
@@ -314,23 +313,23 @@ if page == "1. Genel Dashboard":
         
         g1, g2 = st.columns(2)
         top_sips = df_dashboard.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index()
-        fig1 = px.bar(top_sips, x='MALIN CINSI', y='ADET', title="1. En Çok Sipariş Edilen 10 Ürün (Adet)", color='ADET')
-        g1.plotly_chart(fig1, use_container_width=True)
+        fig1 = px.bar(top_sips, x='MALIN CINSI', y='ADET', title="1. En Çok Sipariş Edilen 10 Ürün (Adet)", color='ADET', color_continuous_scale="Viridis")
+        g1.plotly_chart(apply_premium_animation(fig1, "bar"), use_container_width=True)
         
         top_money = df_dashboard.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig2 = px.bar(top_money, x='MALIN CINSI', y='TOPLAM_SERMAYE', title="2. En Çok Sermaye Yatırılan 10 Ürün ($)", color='TOPLAM_SERMAYE')
-        g2.plotly_chart(fig2, use_container_width=True)
+        fig2 = px.bar(top_money, x='MALIN CINSI', y='TOPLAM_SERMAYE', title="2. En Çok Sermaye Yatırılan 10 Ürün ($)", color='TOPLAM_SERMAYE', color_continuous_scale="Cividis")
+        g2.plotly_chart(apply_premium_animation(fig2, "bar"), use_container_width=True)
 
         g3, g4 = st.columns(2)
         top_firma = df_dashboard.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig3 = px.pie(top_firma, values='TOPLAM_SERMAYE', names='FIRMA', title="3. Harcama Yapılan İlk 10 Firma", hole=0.4)
+        fig3 = px.pie(top_firma, values='TOPLAM_SERMAYE', names='FIRMA', title="3. Harcama Yapılan İlk 10 Firma", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
         fig3.update_traces(textinfo='label+percent')
-        g3.plotly_chart(fig3, use_container_width=True)
+        g3.plotly_chart(apply_premium_animation(fig3, "pie"), use_container_width=True)
         
         top_tur = df_dashboard.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
-        fig4 = px.pie(top_tur, values='TOPLAM_SERMAYE', names='TUR', title="4. Tür Bazlı Harcama Dağılımı (USD)", hole=0.4)
+        fig4 = px.pie(top_tur, values='TOPLAM_SERMAYE', names='TUR', title="4. Tür Bazlı Harcama Dağılımı (USD)", hole=0.4, color_discrete_sequence=px.colors.qualitative.Safe)
         fig4.update_traces(textinfo='label+percent')
-        g4.plotly_chart(fig4, use_container_width=True)
+        g4.plotly_chart(apply_premium_animation(fig4, "pie"), use_container_width=True)
 
         df_2026 = df_dashboard[df_dashboard['SIPARIS_AY'].str.startswith('2026', na=False)].copy().sort_values('SIPARIS_AY')
 
@@ -338,29 +337,30 @@ if page == "1. Genel Dashboard":
         top_5_firmalar = df_2026.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).index
         df_trend_firma = df_2026[df_2026['FIRMA'].isin(top_5_firmalar)]
         trend_firma = df_trend_firma.groupby(['SIPARIS_AY', 'FIRMA'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
-        fig5 = px.line(trend_firma, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='FIRMA', title="5. Aylık Firma Harcama Trendi (En Büyük 5 Firma)", markers=True)
-        fig5.update_layout(xaxis_type='category') # Kural 2: Zaman ekseni kilitlenmesini engeller
-        g5.plotly_chart(fig5, use_container_width=True)
+        # Kavisli çizgiler için line_shape='spline' eklendi
+        fig5 = px.line(trend_firma, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='FIRMA', title="5. Aylık Firma Harcama Trendi (En Büyük 5 Firma)", markers=True, line_shape='spline')
+        fig5.update_layout(xaxis_type='category')
+        g5.plotly_chart(apply_premium_animation(fig5, "line"), use_container_width=True)
         
         top_5_turler = df_2026.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).index
         df_trend_tur = df_2026[df_2026['TUR'].isin(top_5_turler)]
         trend_tur = df_trend_tur.groupby(['SIPARIS_AY', 'TUR'])['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
-        fig6 = px.line(trend_tur, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='TUR', title="6. Aylık Tür Harcama Trendi (En Büyük 5 Tür)", markers=True)
+        fig6 = px.line(trend_tur, x='SIPARIS_AY', y='TOPLAM_SERMAYE', color='TUR', title="6. Aylık Tür Harcama Trendi (En Büyük 5 Tür)", markers=True, line_shape='spline')
         fig6.update_layout(xaxis_type='category')
-        g6.plotly_chart(fig6, use_container_width=True)
+        g6.plotly_chart(apply_premium_animation(fig6, "line"), use_container_width=True)
 
         g7, g8 = st.columns(2)
         trend_total = df_2026.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
-        fig7 = px.line(trend_total, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title="7. Aylık Toplam Sermaye Akışı ($)", markers=True)
+        fig7 = px.line(trend_total, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title="7. Aylık Toplam Sermaye Akışı ($)", markers=True, line_shape='spline')
         fig7.update_layout(xaxis_type='category')
-        g7.plotly_chart(fig7, use_container_width=True)
+        g7.plotly_chart(apply_premium_animation(fig7, "line"), use_container_width=True)
         
         df_barkod_temiz = df_dashboard[(df_dashboard['BARKOD'] != "BELİRTİLMEMİŞ") & (df_dashboard['BARKOD'].str.strip() != "")]
         top_barcode = df_barkod_temiz.groupby('BARKOD').agg({'ADET': 'sum', 'MALIN CINSI': 'first'}).nlargest(10, 'ADET').reset_index()
-        fig8 = px.bar(top_barcode, x='MALIN CINSI', y='ADET', title="8. Barkod Bazlı Top 10 Ürün (Gerçek Barkodlar)", text='BARKOD', color='ADET')
-        g8.plotly_chart(fig8, use_container_width=True)
+        fig8 = px.bar(top_barcode, x='MALIN CINSI', y='ADET', title="8. Barkod Bazlı Top 10 Ürün (Gerçek Barkodlar)", text='BARKOD', color='ADET', color_continuous_scale="Turbine")
+        g8.plotly_chart(apply_premium_animation(fig8, "bar"), use_container_width=True)
 
-# --- SAYFA 2: FİRMA BAZLI ANALİZ ---
+# --- SAYFA 2: FİRMA BAZLI ANALİZ (ANIMASYONLU) ---
 elif page == "2. Firma Bazlı Analiz":
     st.header("🏢 Firma Bazlı Analiz")
     
@@ -395,18 +395,17 @@ elif page == "2. Firma Bazlı Analiz":
                     firma_df_pie = firma_df.copy()
                     firma_df_pie['TUR_GRAFIK'] = firma_df_pie['TUR']
                 
-                fig_a = px.pie(firma_df_pie, values='TOPLAM_SERMAYE', names='TUR_GRAFIK', title=f"{selected_firma} Ürün Kategorisi Dağılımı (İlk 6 + Diğer)", hole=0.4)
+                fig_a = px.pie(firma_df_pie, values='TOPLAM_SERMAYE', names='TUR_GRAFIK', title=f"{selected_firma} Ürün Kategorisi Dağılımı (İlk 6 + Diğer)", hole=0.4, color_discrete_sequence=px.colors.qualitative.Set3)
                 fig_a.update_traces(textinfo='label+percent')
-                col_a.plotly_chart(fig_a, use_container_width=True)
+                col_a.plotly_chart(apply_premium_animation(fig_a, "pie"), use_container_width=True)
             else:
                 col_a.info("Grafik için yeterli veri yok.")
             
-            # KESİN ÇÖZÜM: AECOOLY ve Diğer Firmaların Grafiğini Sabitleyen Alan
             trend_data_all = firma_df.groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index().sort_values('SIPARIS_AY')
             if not trend_data_all.empty and trend_data_all['TOPLAM_SERMAYE'].sum() > 0:
-                fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE')
-                fig_b.update_layout(xaxis_type='category') # Bozuk veya belirsiz tarih metinlerinin grafiği ezmesini önler
-                col_b.plotly_chart(fig_b, use_container_width=True)
+                fig_b = px.bar(trend_data_all, x='SIPARIS_AY', y='TOPLAM_SERMAYE', title=f"{selected_firma} Dönemsel Alım Trendi ($)", color='TOPLAM_SERMAYE', color_continuous_scale="Bluered")
+                fig_b.update_layout(xaxis_type='category')
+                col_b.plotly_chart(apply_premium_animation(fig_b, "bar"), use_container_width=True)
             else:
                 col_b.info("Zaman trendi grafik verisi bulunamadı.")
             
