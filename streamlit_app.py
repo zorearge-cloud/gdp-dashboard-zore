@@ -527,4 +527,4 @@ elif page == "3. Ham Veri":
         if drop_cols_all:
             df_all_formatted = df_all_formatted.drop(columns=drop_cols_all)
             
-        st.dataframe(df_all_formatted, use_container_width=True)
+        st.dataframe(df_all_formatted, use_container_width=True) 
