@@ -274,7 +274,7 @@ if page == "1. Siber Dashboard":
         c3.metric("Çalışılan Firma Sayısı", df_dashboard['FIRMA'].nunique())
         st.markdown("---")
         
-        # VERİ HAZIRLIĞI (Grafik için geçici aylık periyot hesaplaması)
+        # VERİ HAZIRLIĞI
         df_temp = df_dashboard.copy()
         df_temp['SIPARIS_AY'] = df_temp['SIPARIS_TARIHI'].apply(lambda x: x[:7] if x != "BELİRTİLMEMİŞ" and len(x) >= 7 else "Bilinmeyen Dönem")
         valid_df = df_temp[df_temp['SIPARIS_AY'] != "Bilinmeyen Dönem"].copy()
@@ -287,8 +287,9 @@ if page == "1. Siber Dashboard":
         for month in months_sequence:
             df_cum = df_temp[df_temp['SIPARIS_AY'] <= month]
             
-            c1_df = df_cum.groupby('MALIN CINSI')['ADET'].sum().nlargest(5).reset_index().iloc[::-1]
-            c2_df = df_cum.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index().iloc[::-1]
+            # 1. ve 2. Grafikler için İLK 10 VERİSİ (Dikey bar için sıralama normal bırakıldı)
+            c1_df = df_cum.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index()
+            c2_df = df_cum.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
             
             c3_df = df_cum.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
             c3_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": row['FIRMA']} for _, row in c3_df.iterrows()]
@@ -352,13 +353,66 @@ if page == "1. Siber Dashboard":
                 const lastMonth = monthsSequence[monthsSequence.length - 1];
                 const data = timelineMatrix[lastMonth];
 
-                const c1_data = data.c1_names.map((n, i) => ({name: n, value: data.c1_vals[i]}));
-                const c2_data = data.c2_names.map((n, i) => ({name: n, value: data.c2_vals[i]}));
+                // 3 ve 4. Grafikler için Donut ayarlamaları
                 const c3_data = data.c3_data;
                 const c4_data = data.c4_data;
 
                 const colorPalette = ['#00f3ff', '#ff00ff', '#00ff66', '#ffaa00', '#aa00ff', '#ff3300', '#0011ff'];
 
+                // DİKEY SÜTUN (BAR) GRAFİĞİ FONKSİYONU (1. ve 2. Grafikler İçin Fütüristik Tasarım)
+                function getBarOption(titleText, xData, yData, glowColor) {
+                    return {
+                        title: { 
+                            text: titleText, 
+                            textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' },
+                            left: 'center', top: '2%'
+                        },
+                        tooltip: { 
+                            trigger: 'axis', 
+                            backgroundColor: 'rgba(0,0,0,0.8)', 
+                            textStyle: { color: '#fff' },
+                            axisPointer: { type: 'shadow' }
+                        },
+                        grid: { left: '3%', right: '4%', bottom: '15%', top: '20%', containLabel: true },
+                        xAxis: {
+                            type: 'category',
+                            data: xData,
+                            axisLabel: { color: '#00f3ff', interval: 0, rotate: 25, fontSize: 10, width: 80, overflow: 'truncate' },
+                            axisLine: { lineStyle: { color: '#00f3ff' } }
+                        },
+                        yAxis: {
+                            type: 'value',
+                            splitLine: { lineStyle: { color: 'rgba(0, 243, 255, 0.1)', type: 'dashed' } },
+                            axisLabel: { color: '#00f3ff' }
+                        },
+                        series: [{
+                            data: yData,
+                            type: 'bar',
+                            barWidth: '40%',
+                            itemStyle: {
+                                color: glowColor,
+                                borderRadius: [4, 4, 0, 0],
+                                shadowBlur: 15,
+                                shadowColor: glowColor
+                            },
+                            label: {
+                                show: true,
+                                position: 'top',
+                                color: '#fff',
+                                fontWeight: 'bold',
+                                textShadowBlur: 8,
+                                textShadowColor: glowColor,
+                                formatter: function(params) {
+                                    if (params.value >= 1000) { return (params.value / 1000).toFixed(1) + 'k'; }
+                                    return params.value;
+                                }
+                            },
+                            animationDuration: 1500
+                        }]
+                    };
+                }
+
+                // DONUT GRAFİĞİ FONKSİYONU (3. ve 4. Grafikler İçin Korundu)
                 function getDonutOption(titleText, chartData) {
                     return {
                         title: { 
@@ -409,11 +463,13 @@ if page == "1. Siber Dashboard":
                     c3: echarts.init(document.getElementById('c3')), c4: echarts.init(document.getElementById('c4'))
                 };
 
-                charts.c1.setOption(getDonutOption('1. En Çok Sipariş Edilen İlk 5 Ürün (Adet)', c1_data));
-                charts.c2.setOption(getDonutOption('2. En Çok Sermaye Yatırılan İlk 5 Ürün ($)', c2_data));
+                // GRAFİKLERİN ÇİZİMİ (1. ve 2. Grafikler Dikey Sütun Olarak Atandı)
+                charts.c1.setOption(getBarOption('1. En Çok Sipariş Edilen İlk 10 Ürün (Adet)', data.c1_names, data.c1_vals, '#00f3ff'));
+                charts.c2.setOption(getBarOption('2. En Çok Sermaye Yatırılan İlk 10 Ürün ($)', data.c2_names, data.c2_vals, '#ff00ff'));
                 charts.c3.setOption(getDonutOption('3. Harcama Yapılan İlk 5 Firma (USD)', c3_data));
                 charts.c4.setOption(getDonutOption('4. Tür Bazlı Harcama Dağılımı', c4_data));
 
+                // Donut dönme animasyonu sadece c3 ve c4 için uygulandı
                 let currentAngle = 90;
                 setInterval(() => {
                     currentAngle = (currentAngle - 0.3) % 360; 
@@ -423,7 +479,8 @@ if page == "1. Siber Dashboard":
                             { startAngle: currentAngle, animation: false }
                         ]
                     };
-                    Object.values(charts).forEach(c => c.setOption(updateOpt));
+                    charts.c3.setOption(updateOpt);
+                    charts.c4.setOption(updateOpt);
                 }, 30);
 
                 window.addEventListener('resize', () => {
