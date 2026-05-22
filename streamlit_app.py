@@ -7,6 +7,58 @@ import io
 import openpyxl
 import re
 import datetime
+import json
+
+# --- SİNEMATİK MOTOR: SAVAŞ ODASI ---
+def render_cinematic_war_room(df):
+    """
+    Bu fonksiyon dashboard'un en üstüne yerleştirilecek sinematik modüldür.
+    Statik grafiklerini alır ve onları modern, hareketli bir veri akışına dönüştürür.
+    """
+    st.markdown("""
+    <style>
+        .cinematic-wrapper { background: #060913; padding: 20px; border-radius: 15px; border: 1px solid #00f3ff; }
+        .glow-text { color: #00f3ff; text-shadow: 0 0 10px #00f3ff; font-family: monospace; }
+    </style>
+    <div class="cinematic-wrapper">
+        <h1 class="glow-text">🌐 ZORE KİNETİK VERİ AKIŞI</h1>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Veriyi sinematik yapıya hazırla
+    firms = df.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
+    
+    # ECharts tabanlı sinematik bar grafiği
+    html_code = f"""
+    <div id="main" style="width: 100%; height: 400px;"></div>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script>
+        var chart = echarts.init(document.getElementById('main'));
+        var option = {{
+            backgroundColor: 'transparent',
+            xAxis: {{ type: 'category', data: {firms['FIRMA'].tolist()}, axisLabel: {{ color: '#00f3ff', rotate: 45 }} }},
+            yAxis: {{ type: 'value', axisLabel: {{ color: '#00f3ff' }} }},
+            series: [{{
+                data: {firms['TOPLAM_SERMAYE'].tolist()},
+                type: 'bar',
+                itemStyle: {{ color: '#00f3ff', shadowBlur: 10, shadowColor: '#00f3ff' }},
+                animationDuration: 3000
+            }}]
+        }};
+        chart.setOption(option);
+    </script>
+    """
+    st.components.v1.html(html_code, height=450)
+
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import requests
+import io
+import openpyxl
+import re
+import datetime
 
 # --- AYARLAR VE ANAYASA (TAM KAPSAMLI YAPI) ---
 st.set_page_config(layout="wide", page_title="ZORE Veri Paneli")
@@ -458,62 +510,3 @@ elif page == "3. Ham Veri":
                 st.dataframe(raw_display, use_container_width=True, hide_index=True)
             else:
                 st.warning(f"Bu sekme ({tab_name}) için veri bulunamadı.")
-                # --- SİNEMATİK SAVAŞ ODASI MODÜLÜ (EKLENTİ: 461. SATIR VE SONRASI) ---
-def render_sinematik_savas_odasi(df):
-    """
-    Sisteme entegre edilen yüksek teknolojili görselleştirme motoru.
-    Orijinal veri çekme motorundan gelen df_dashboard verisini canlı matrise dönüştürür.
-    """
-    st.markdown("<h2 style='color:#00f3ff; text-align:center;'>🎬 ZORE SAVAŞ ODASI - KİNETİK AKIŞ</h2>", unsafe_allow_html=True)
-    
-    # 1. Veri Matrisi Hazırlığı (Dönem bazlı ciro ve tür analizi)
-    months = sorted(df['SIPARIS_AY'].unique())
-    timeline_matrix = {}
-    for m in months:
-        df_m = df[df['SIPARIS_AY'] == m]
-        top_f = df_m.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(10).iloc[::-1]
-        top_t = df_m.groupby('TUR')['ADET'].sum().nlargest(8).items()
-        timeline_matrix[m] = {
-            "firms": top_f.index.tolist(),
-            "sermaye": top_f.values.round(2).tolist(),
-            "pie": [{"value": int(x), "name": str(n)} for n, x in top_t]
-        }
-    
-    # 2. WebGL Destekli Savaş Odası Arayüzü (JavaScript Matris Döngüsü)
-    cinematic_html = f"""
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-    <div style="display:flex; gap:10px; height:450px; background:transparent;">
-        <div id="bar_matrix" style="flex:1.5; background:rgba(4, 11, 28, 0.7); border:1px solid #00f3ff; border-radius:5px;"></div>
-        <div id="pie_matrix" style="flex:1; background:rgba(4, 11, 28, 0.7); border:1px solid #ff00ff; border-radius:5px;"></div>
-    </div>
-    <script>
-        const matrix = {json.dumps(timeline_matrix)};
-        const keys = {json.dumps(months)};
-        const bar = echarts.init(document.getElementById('bar_matrix'));
-        const pie = echarts.init(document.getElementById('pie_matrix'));
-        let idx = 0;
-        
-        function updateCharts() {{
-            let key = keys[idx++ % keys.length];
-            bar.setOption({{ 
-                title:{{text:'DÖNEM: '+key, textStyle:{{color:'#00f3ff'}}}}, 
-                xAxis:{{type:'value'}}, 
-                yAxis:{{type:'category', data:matrix[key].firms}}, 
-                series:[{{type:'bar', data:matrix[key].sermaye, itemStyle:{{color:'#00f3ff'}}}}] 
-            }});
-            pie.setOption({{ 
-                series:[{{type:'pie', radius:'60%', data:matrix[key].pie}}] 
-            }});
-        }}
-        setInterval(updateCharts, 2500);
-        updateCharts();
-    </script>
-    """
-    st.components.v1.html(cinematic_html, height=500)
-
-# --- SİSTEM ENTEGRASYONU ---
-# Sidebar radyo düğmelerine "🎬 SİNEMATİK SAVAŞ ODASI" seçeneğini eklemeyi unutma:
-# page = st.sidebar.radio("Sayfa Seçimi", ["🎬 SİNEMATİK SAVAŞ ODASI", "1. Genel Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
-
-if page == "🎬 SİNEMATİK SAVAŞ ODASI":
-    render_sinematik_savas_odasi(df_dashboard)
