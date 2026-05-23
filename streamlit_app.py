@@ -8,7 +8,7 @@ import json
 import re
 
 # --- AYARLAR VE ANAYASA (TAM KAPSAMLI YAPI) ---
-st.set_page_config(layout="wide", page_title="ZORE Siber Veri Paneli")
+st.set_page_config(layout="wide", page_title="ZORE Siparis Veri Paneli")
 
 # 1. KURAL: Veri çekme bağlantıları ve tab yapıları tamamen korundu
 LINKS = [
@@ -258,10 +258,10 @@ st.sidebar.text(f"1 EUR = {rates['EUR_TO_USD']:.4f} $")
 st.sidebar.text(f"1 CNY = {rates['CNY_TO_USD']:.4f} $")
 st.sidebar.markdown("---")
 
-page = st.sidebar.radio("Sayfa Seçimi", ["1. Siber Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
+page = st.sidebar.radio("Sayfa Seçimi", ["1. Siparis Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
 
 # --- SAYFA 1: SİBER DASHBOARD (6 GRAFİKLİ 3x2 GRID TASARIMI) ---
-if page == "1. Siber Dashboard":
+if page == "1. Siparis Dashboard":
     st.header("📊 ZORE Sipariş Takip Kontrol Paneli")
     
     if df_dashboard.empty:
