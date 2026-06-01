@@ -16,8 +16,8 @@ LINKS = [
     "https://docs.google.com/spreadsheets/d/1hVk6VgMFXWAukoQwMDIoOLrG8SD4UDLFFRH9VmDhXSE/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1S1kTptWUEf705cBLw9P9mL6rrqbVjbcp1xk_hgQ-Ny0/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1VKb6za4Fse5XrGawPG6qvrQZuFhDRGaAysmADGIC7Wc/export?format=xlsx",
-    "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=xlsx",
-    "https://docs.google.com/spreadsheets/d/1m3T2U7jsBe56fdTjPTI9l8Ix5kRXPd-34pNcmHnvdVU/export?format=xlsx",
+    "https://docs.google.com/spreadsheets/d/1F71jiUwqvxddv7jwJibisWVaFxQ3oLQPP3CohzK_idk/export?format=xlsx",  # <-- BURADAKİ EKSİK VİRGÜLÜNÜ TAMİR ETTİM
+    "https://docs.google.com/spreadsheets/d/1m3T2U7jsBe56fdTjPTI9l8Ix5kRXPd-34pNcmHnvdVU/export?format=xlsx"
 ]
 
 TARGET_TABS = ["has_air", "has_sea", "meh_air", "meh_sea", "ist_air", "ist_sea"]
@@ -133,7 +133,7 @@ def clean_data(df, rates):
                 numeric_price = float(val_str)
             except:
                 numeric_price = 0.0
-                
+                 
             if currency == 'CNY':
                 usd_price = numeric_price * rates["CNY_TO_USD"]
             elif currency == 'EUR':
@@ -200,7 +200,7 @@ def get_all_data(rates):
                     for h in raw_headers:
                         clean_h = h.replace('İ', 'I').replace('Ş', 'S').replace('Ü', 'U').replace('Ç', 'C').replace('Ğ', 'G').replace('_', ' ')
                         headers.append(HEADER_MAP.get(clean_h, h))
-                        
+                                            
                     try:
                         fiyat_idx = headers.index('FIYAT')
                     except ValueError:
@@ -335,17 +335,11 @@ if page == "1. Siparis Dashboard":
                 .matrix-title { color: #fff; font-size: 26px; font-weight: bold; letter-spacing: 2px; margin: 0; text-shadow: 0 0 15px #00f3ff; }
                 .matrix-subtitle { color: #00ff66; font-size: 15px; margin-top: 10px; font-weight: bold; letter-spacing: 1px; }
                 .period-badge { color: #00f3ff; background: rgba(0, 243, 255, 0.1); padding: 4px 15px; border-radius: 4px; border: 1px solid #00f3ff; font-family: monospace; font-size: 16px; margin-left: 10px; box-shadow: 0 0 8px #00f3ff; }
-                
                 .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 20px; grid-template-rows: auto auto auto; }
-                
                 .panel { 
-                    background: rgba(2, 6, 19, 0.9);
-                    border: 2px solid #00f3ff; 
-                    border-radius: 12px; 
-                    box-shadow: 0 0 20px rgba(0, 243, 255, 0.5), inset 0 0 15px rgba(0, 243, 255, 0.2);
-                    height: 450px; 
-                    padding: 20px;
-                    overflow: visible;
+                    background: rgba(2, 6, 19, 0.9); border: 2px solid #00f3ff; 
+                    border-radius: 12px; box-shadow: 0 0 20px rgba(0, 243, 255, 0.5), inset 0 0 15px rgba(0, 243, 255, 0.2);
+                    height: 450px; padding: 20px; overflow: visible;
                 }
             </style>
         </head>
@@ -353,18 +347,15 @@ if page == "1. Siparis Dashboard":
             <div class="header-box">
                 <h2 class="matrix-title">ZORE SİPARİŞ TAKİP KONTROL PANELİ</h2>
                 <div class="matrix-subtitle">
-                    SİSTEM DURUMU: <span style="color: #00ff66;">AKTİF</span> |
-                    GÖSTERİLEN VERİ: <span class="period-badge">GENEL TOPLAM</span>
+                    SİSTEM DURUMU: <span style="color: #00ff66;">AKTİF</span> | GÖSTERİLEN VERİ: <span class="period-badge">GENEL TOPLAM</span>
                 </div>
             </div>
             
             <div class="grid-container">
                 <div id="c3" class="panel"></div>
                 <div id="c4" class="panel"></div>
-                
                 <div id="c1" class="panel"></div>
                 <div id="c2" class="panel"></div>
-                
                 <div id="c5" class="panel"></div>
                 <div id="c6" class="panel"></div>
             </div>
@@ -372,62 +363,30 @@ if page == "1. Siparis Dashboard":
             <script>
                 const timelineMatrix = __TIMELINE_MATRIX__;
                 const monthsSequence = __MONTHS_SEQUENCE__;
-                
                 const lastMonth = monthsSequence[monthsSequence.length - 1];
                 const data = timelineMatrix[lastMonth];
-
                 const c3_data = data.c3_data;
                 const c4_data = data.c4_data;
-
                 const colorPalette = ['#00f3ff', '#ff00ff', '#00ff66', '#ffaa00', '#aa00ff', '#ff3300', '#0011ff'];
 
                 // DİKEY SÜTUN (BAR) GRAFİĞİ FONKSİYONU (BİREBİR KORUNDU)
                 function getBarOption(titleText, xData, yData, glowColor) {
                     return {
-                        title: { 
-                            text: titleText, 
-                            textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' },
-                            left: 'center', top: '2%'
-                        },
-                        tooltip: { 
-                            trigger: 'axis', 
-                            backgroundColor: 'rgba(0,0,0,0.8)', 
-                            textStyle: { color: '#fff' },
-                            axisPointer: { type: 'shadow' }
-                        },
+                        title: { text: titleText, textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' }, left: 'center', top: '2%' },
+                        tooltip: { trigger: 'axis', backgroundColor: 'rgba(0,0,0,0.8)', textStyle: { color: '#fff' }, axisPointer: { type: 'shadow' } },
                         grid: { left: '3%', right: '4%', bottom: '15%', top: '20%', containLabel: true },
                         xAxis: {
-                            type: 'category',
-                            data: xData,
+                            type: 'category', data: xData,
                             axisLabel: { color: '#00f3ff', interval: 0, rotate: 25, fontSize: 10, width: 80, overflow: 'truncate' },
                             axisLine: { lineStyle: { color: '#00f3ff' } }
                         },
-                        yAxis: {
-                            type: 'value',
-                            splitLine: { lineStyle: { color: 'rgba(0, 243, 255, 0.1)', type: 'dashed' } },
-                            axisLabel: { color: '#00f3ff' }
-                        },
+                        yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(0, 243, 255, 0.1)', type: 'dashed' } }, axisLabel: { color: '#00f3ff' } },
                         series: [{
-                            data: yData,
-                            type: 'bar',
-                            barWidth: '40%',
-                            itemStyle: {
-                                color: glowColor,
-                                borderRadius: [4, 4, 0, 0],
-                                shadowBlur: 15,
-                                shadowColor: glowColor
-                            },
+                            data: yData, type: 'bar', barWidth: '40%',
+                            itemStyle: { color: glowColor, borderRadius: [4, 4, 0, 0], shadowBlur: 15, shadowColor: glowColor },
                             label: {
-                                show: true,
-                                position: 'top',
-                                color: '#fff',
-                                fontWeight: 'bold',
-                                textShadowBlur: 8,
-                                textShadowColor: glowColor,
-                                formatter: function(params) {
-                                    if (params.value >= 1000) { return (params.value / 1000).toFixed(1) + 'k'; }
-                                    return params.value;
-                                }
+                                show: true, position: 'top', color: '#fff', fontWeight: 'bold', textShadowBlur: 8, textShadowColor: glowColor,
+                                formatter: function(params) { if (params.value >= 1000) { return (params.value / 1000).toFixed(1) + 'k'; } return params.value; }
                             },
                             animationDuration: 1500
                         }]
@@ -437,44 +396,21 @@ if page == "1. Siparis Dashboard":
                 // DONUT GRAFİĞİ FONKSİYONU (BİREBİR KORUNDU - DEĞİŞTİRİLMEDİ)
                 function getDonutOption(titleText, chartData) {
                     return {
-                        title: { 
-                            text: titleText, 
-                            textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' },
-                            left: 'center', top: '2%'
-                        },
+                        title: { text: titleText, textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' }, left: 'center', top: '2%' },
                         tooltip: { trigger: 'item', backgroundColor: 'rgba(0,0,0,0.8)', textStyle: { color: '#fff' } },
                         color: colorPalette,
                         series: [
                             {
-                                type: 'pie',
-                                radius: ['45%', '70%'],
-                                center: ['50%', '55%'],
-                                itemStyle: {
-                                    borderRadius: 4, 
-                                    borderColor: '#03050a', 
-                                    borderWidth: 2, 
-                                    shadowBlur: 15, 
-                                    shadowColor: '#00f3ff' 
-                                },
-                                label: { 
-                                    color: '#fff', fontSize: 13, formatter: '{b}\\n{d}%', fontWeight: 'bold',
-                                    position: 'outside', textShadowBlur: 8, textShadowColor: '#00f3ff'
-                                },
+                                type: 'pie', radius: ['45%', '70%'], center: ['50%', '55%'],
+                                itemStyle: { borderRadius: 4, borderColor: '#03050a', borderWidth: 2, shadowBlur: 15, shadowColor: '#00f3ff' },
+                                label: { color: '#fff', fontSize: 13, formatter: '{b}\\n{d}%', fontWeight: 'bold', position: 'outside', textShadowBlur: 8, textShadowColor: '#00f3ff' },
                                 labelLine: { lineStyle: { width: 2 }, length: 20, length2: 15 },
-                                data: chartData,
-                                startAngle: 90,
-                                animationDuration: 1000
+                                data: chartData, startAngle: 90, animationDuration: 1000
                             },
                             {
-                                type: 'pie',
-                                radius: ['34%', '36%'],
-                                center: ['50%', '55%'],
+                                type: 'pie', radius: ['34%', '36%'], center: ['50%', '55%'],
                                 itemStyle: { color: 'transparent', borderColor: '#ff00ff', borderWidth: 2 },
-                                label: { show: false },
-                                labelLine: { show: false },
-                                data: [{value: 1}],
-                                startAngle: 90,
-                                animation: false
+                                label: { show: false }, labelLine: { show: false }, data: [{value: 1}], startAngle: 90, animation: false
                             }
                         ]
                     };
@@ -483,40 +419,17 @@ if page == "1. Siparis Dashboard":
                 // YENİ FÜTÜRİSTİK ÇİZGİ GRAFİK TASARIMI (Glow & Gradient Alan Desteğiyle)
                 function getLineOption(titleText, xData, seriesData) {
                     return {
-                        title: { 
-                            text: titleText, 
-                            textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' },
-                            left: 'center', top: '2%'
-                        },
+                        title: { text: titleText, textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' }, left: 'center', top: '2%' },
                         tooltip: { trigger: 'axis', backgroundColor: 'rgba(0,0,0,0.8)', textStyle: { color: '#fff' } },
                         legend: { bottom: '2%', textStyle: { color: '#ffffff', fontWeight: 'bold' } },
                         grid: { left: '4%', right: '4%', bottom: '15%', top: '20%', containLabel: true },
-                        xAxis: {
-                            type: 'category',
-                            data: xData,
-                            axisLabel: { color: '#00f3ff', fontSize: 11 },
-                            axisLine: { lineStyle: { color: '#00f3ff' } }
-                        },
-                        yAxis: {
-                            type: 'value',
-                            splitLine: { lineStyle: { color: 'rgba(0, 243, 255, 0.1)', type: 'dashed' } },
-                            axisLabel: { color: '#00f3ff' }
-                        },
+                        xAxis: { type: 'category', data: xData, axisLabel: { color: '#00f3ff', fontSize: 11 }, axisLine: { lineStyle: { color: '#00f3ff' } } },
+                        yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(0, 243, 255, 0.1)', type: 'dashed' } }, axisLabel: { color: '#00f3ff' } },
                         series: seriesData.map(s => ({
-                            name: s.name,
-                            type: 'line',
-                            data: s.data,
-                            smooth: true,
+                            name: s.name, type: 'line', data: s.data, smooth: true,
                             lineStyle: { width: 4, shadowBlur: 10, shadowColor: s.color, color: s.color },
-                            symbol: 'circle',
-                            symbolSize: 8,
-                            itemStyle: { color: s.color },
-                            areaStyle: {
-                                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                                    { offset: 0, color: s.color + '33' },
-                                    { offset: 1, color: 'transparent' }
-                                ])
-                            }
+                            symbol: 'circle', symbolSize: 8, itemStyle: { color: s.color },
+                            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: s.color + '33' }, { offset: 1, color: 'transparent' }]) }
                         }))
                     };
                 }
@@ -527,18 +440,12 @@ if page == "1. Siparis Dashboard":
                     c5: echarts.init(document.getElementById('c5')), c6: echarts.init(document.getElementById('c6'))
                 };
 
-                // GRAFİKLERİN ÇİZİMİ (İstediğin Gibi Yerleri Değiştirildi)
+                // GRAFİKLERİN ÇİZİMİ
                 charts.c3.setOption(getDonutOption('1. Harcama Yapılan İlk 5 Firma (USD)', c3_data));
                 charts.c4.setOption(getDonutOption('2. Tür Bazlı Harcama Dağılımı', c4_data));
                 charts.c1.setOption(getBarOption('3. En Çok Sipariş Edilen İlk 10 Ürün (Adet)', data.c1_names, data.c1_vals, '#00f3ff'));
                 charts.c2.setOption(getBarOption('4. En Çok Sermaye Yatırılan İlk 10 Ürün ($)', data.c2_names, data.c2_vals, '#ff00ff'));
-                
-                // 5. Grafik: 5 Aylık Harcama Trend Akışı
-                charts.c5.setOption(getLineOption('5. Aylık Toplam Sermaye Akışı (Son 5 Ay)', data.c5_months, [
-                    { name: 'Sermaye ($)', data: data.c5_vals, color: '#00ff66' }
-                ]));
-
-                // 6. Grafik: Nakliye Oranı (Hava Turuncu, Deniz Mavi Çizgi)
+                charts.c5.setOption(getLineOption('5. Aylık Toplam Sermaye Akışı (Son 5 Ay)', data.c5_months, [{ name: 'Sermaye ($)', data: data.c5_vals, color: '#00ff66' }]));
                 charts.c6.setOption(getLineOption('6. Nakliye Türü Dağılımı (Hava vs Deniz)', data.c6_months, [
                     { name: 'Hava', data: data.c6_air, color: '#ffaa00' },
                     { name: 'Deniz', data: data.c6_sea, color: '#0011ff' }
@@ -548,19 +455,11 @@ if page == "1. Siparis Dashboard":
                 let currentAngle = 90;
                 setInterval(() => {
                     currentAngle = (currentAngle - 0.3) % 360; 
-                    const updateOpt = {
-                        series: [
-                            { startAngle: currentAngle, animation: false },
-                            { startAngle: currentAngle, animation: false }
-                        ]
-                    };
+                    const updateOpt = { series: [ { startAngle: currentAngle, animation: false }, { startAngle: currentAngle, animation: false } ] };
                     charts.c3.setOption(updateOpt);
                     charts.c4.setOption(updateOpt);
                 }, 30);
-
-                window.addEventListener('resize', () => {
-                    Object.values(charts).forEach(c => c.resize());
-                });
+                window.addEventListener('resize', () => { Object.values(charts).forEach(c => c.resize()); });
             </script>
         </body>
         </html>
@@ -632,12 +531,34 @@ elif page == "2. Firma Bazlı Analiz":
                     st.error("❌ Barkod Bulunamadı! Bu firmanın ham veri listesinde yazdığınız barkod mevcut değil.")
                     
             st.markdown(f"**{selected_firma} Veri Listesi:**")
+            
+            # ==========================================
+            # YENİ ENJEKTE EDİLEN KISIM: EXCEL İNDİRME BUTONU (SAYFA 2)
+            # ==========================================
+            try:
+                df_excel = display_df.copy()
+                drop_cols_excel = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in df_excel.columns]
+                if drop_cols_excel:
+                    df_excel = df_excel.drop(columns=drop_cols_excel)
+                output_excel = io.BytesIO()
+                with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                    df_excel.to_excel(writer, index=False, sheet_name='Sipariş Listesi')
+                excel_data = output_excel.getvalue()
+                st.download_button(
+                    label=f"📥 {selected_firma} Verilerini Excel Olarak İndir (.xlsx)",
+                    data=excel_data,
+                    file_name=f"{selected_firma}_Siparis_Listesi.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            except Exception as e:
+                st.error(f"Excel indirme motoru hatası: {e}")
+            # ==========================================
+
             display_df_formatted = display_df.copy()
             display_df_formatted['FIYAT'] = display_df_formatted['FIYAT'].map('{:,.2f} $'.format)
             display_df_formatted['TOPLAM_SERMAYE'] = display_df_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
             
             drop_cols = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in display_df_formatted.columns]
-            
             if drop_cols:
                 display_df_formatted = display_df_formatted.drop(columns=drop_cols)
             st.dataframe(display_df_formatted, use_container_width=True)
@@ -649,6 +570,29 @@ elif page == "3. Ham Veri":
         st.error("Veri havuzu boş.")
     else:
         st.markdown("Sistem tarafından çekilen ve birleştirilen tüm temizlenmiş ham veriler aşağıdadır:")
+        
+        # ==========================================
+        # YENİ ENJEKTE EDİLEN KISIM: EXCEL İNDİRME BUTONU (SAYFA 3)
+        # ==========================================
+        try:
+            df_excel_all = df_dashboard.copy()
+            drop_cols_excel_all = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in df_excel_all.columns]
+            if drop_cols_excel_all:
+                df_excel_all = df_excel_all.drop(columns=drop_cols_excel_all)
+            output_excel_all = io.BytesIO()
+            with pd.ExcelWriter(output_excel_all, engine='openpyxl') as writer:
+                df_excel_all.to_excel(writer, index=False, sheet_name='Tüm Veriler')
+            excel_data_all = output_excel_all.getvalue()
+            st.download_button(
+                label="📥 Tüm Ham Veriyi Excel Olarak İndir (.xlsx)",
+                data=excel_data_all,
+                file_name="Zore_Tum_Ham_Veri_Havuzu.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except Exception as e:
+            st.error(f"Genel Excel indirme motoru hatası: {e}")
+        # ==========================================
+
         df_all_formatted = df_dashboard.copy()
         df_all_formatted['FIYAT'] = df_all_formatted['FIYAT'].map('{:,.2f} $'.format)
         df_all_formatted['TOPLAM_SERMAYE'] = df_all_formatted['TOPLAM_SERMAYE'].map('{:,.2f} $'.format)
