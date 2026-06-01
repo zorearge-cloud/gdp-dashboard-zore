@@ -463,7 +463,7 @@ if page == "1. Siparis Dashboard":
         """
         
         html_ready = html_template.replace("__TIMELINE_MATRIX__", json.dumps(timeline_matrix)).replace("__MONTHS_SEQUENCE__", json.dumps(months_sequence))
-        st.components.v1.html(html_ready, height=1650, scrolling=False)
+        st.components.v1.html(html_ready, height=1750, scrolling=False)
 
 
 # --- SAYFA 2: FİRMA BAZLI ANALİZ ---
