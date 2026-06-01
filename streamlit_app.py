@@ -32,7 +32,7 @@ HEADER_MAP = {
     'YUKLEME TARIHI': 'YUKLEME_TARIHI', 'YUKLEME_TARIHI': 'YUKLEME_TARIHI'
 }
 
-# --- CANLI DÖVİZ KURU MOTORU (SİBER HAVUZDAN ÇEKİLİR) ---
+# --- CANLI DÖVİZ KURU MOTORU ---
 @st.cache_data(ttl=3600)
 def get_live_rates():
     rates = {"EUR_TO_USD": 1.09, "CNY_TO_USD": 0.138, "PROUNCE": "Yedek Kur Panelden Okundu"}
@@ -178,12 +178,13 @@ def clean_data(df, rates):
     return df
 
 # --- COKLU DOSYA VE LINK YÖNETİM MOTORU ---
+# LINKS argümanı eklenerek Streamlit önbelleğinin 6. link eklendiğinde yenilenmesi sağlandı
 @st.cache_data(ttl=600)
-def get_all_data(rates):
+def get_all_data(links_list, rates_dict):
     all_data_list = []
     pool = {tab: [] for tab in TARGET_TABS}
     
-    for link in LINKS:
+    for link in links_list:
         try:
             response = requests.get(link, timeout=10)
             if response.status_code != 200: continue
@@ -235,7 +236,7 @@ def get_all_data(rates):
                     elif "sea" in tab_lower: df['NAKLİYE_TÜRÜ'] = prefix + "DENİZ"
                     else: df['NAKLİYE_TÜRÜ'] = prefix + "BELİRTİLMEMİŞ"
                     
-                    df_clean = clean_data(df, rates)
+                    df_clean = clean_data(df, rates_dict)
                     if not df_clean.empty:
                         pool[tab].append(df_clean)
                         all_data_list.append(df_clean)
@@ -245,9 +246,9 @@ def get_all_data(rates):
     full_df = pd.concat(all_data_list, ignore_index=True) if all_data_list else pd.DataFrame()
     return full_df, pool
 
-df_dashboard, data_pool = get_all_data(rates)
+df_dashboard, data_pool = get_all_data(LINKS, rates)
 
-# Sütun Sıralama Düzeltmesi: YUKLEME_TARIHI sütununu en son sütun olacak şekilde taşıyoruz
+# Sütun Sıralama Düzeltmesi
 if not df_dashboard.empty and 'YUKLEME_TARIHI' in df_dashboard.columns:
     cols = [c for c in df_dashboard.columns if c != 'YUKLEME_TARIHI'] + ['YUKLEME_TARIHI']
     df_dashboard = df_dashboard[cols]
@@ -261,7 +262,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio("Sayfa Seçimi", ["1. Siparis Dashboard", "2. Firma Bazlı Analiz", "3. Ham Veri"])
 
-# --- SAYFA 1: SİBER DASHBOARD (6 GRAFİKLİ 3x2 GRID TASARIMI) ---
+# --- SAYFA 1: SİBER DASHBOARD (6 GRAFİKLİ MÜKEMMELLEŞTİRİLMİŞ GRID) ---
 if page == "1. Siparis Dashboard":
     st.header("📊 ZORE Sipariş Takip Kontrol Paneli")
     
@@ -288,26 +289,21 @@ if page == "1. Siparis Dashboard":
         for month in months_sequence:
             df_cum = df_temp[df_temp['SIPARIS_AY'] <= month]
             
-            # 1. ve 2. Grafikler için İLK 10 VERİSİ
             c1_df = df_cum.groupby('MALIN CINSI')['ADET'].sum().nlargest(10).reset_index()
             c2_df = df_cum.groupby('MALIN CINSI')['TOPLAM_SERMAYE'].sum().nlargest(10).reset_index()
             
-            # 3. ve 4. Grafikler için İLK 5 VERİSİ
             c3_df = df_cum.groupby('FIRMA')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
             c3_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": row['FIRMA']} for _, row in c3_df.iterrows()]
             
             c4_df = df_cum.groupby('TUR')['TOPLAM_SERMAYE'].sum().nlargest(5).reset_index()
             c4_data = [{"value": round(row['TOPLAM_SERMAYE'],2), "name": row['TUR']} for _, row in c4_df.iterrows()]
             
-            # --- YENİ ÇİZGİ GRAFİKLER İÇİN SON 5 AY VERİSİ ---
             current_idx = months_sequence.index(month) if month in months_sequence else 0
             start_idx = max(0, current_idx - 4)
             display_months = months_sequence[start_idx:current_idx + 1]
             
-            # 5. Grafik: 5 Aylık Harcama Trendi
             df_trend = valid_df[valid_df['SIPARIS_AY'].isin(display_months)].groupby('SIPARIS_AY')['TOPLAM_SERMAYE'].sum().reset_index()
             
-            # 6. Grafik: Nakliye Türü Oranı (Hava vs Deniz)
             valid_df['NORMAL_NAKLIYE'] = valid_df['NAKLİYE_TÜRÜ'].apply(lambda x: 'HAVA' if 'HAVA' in str(x).upper() else 'DENİZ' if 'DENİZ' in str(x).upper() else 'DİĞER')
             shipping_df = valid_df[valid_df['SIPARIS_AY'].isin(display_months)].groupby(['SIPARIS_AY', 'NORMAL_NAKLIYE'])['ADET'].sum().unstack(fill_value=0)
             
@@ -322,8 +318,8 @@ if page == "1. Siparis Dashboard":
                 "c6_sea": shipping_df.get('DENİZ', pd.Series([0]*len(shipping_df))).tolist()
             }
 
-        # HTML VE JAVASCRIPT TEMPLATE
-        html_template = """
+        # HTML VE JAVASCRIPT TEMPLATE (Raw String Yapılarak Çakışmalar ve Kaymalar Çözüldü)
+        html_template = r"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -369,15 +365,15 @@ if page == "1. Siparis Dashboard":
                 const c4_data = data.c4_data;
                 const colorPalette = ['#00f3ff', '#ff00ff', '#00ff66', '#ffaa00', '#aa00ff', '#ff3300', '#0011ff'];
 
-                // DİKEY SÜTUN (BAR) GRAFİĞİ FONKSİYONU (BİREBİR KORUNDU)
+                // DİKEY SÜTUN (BAR) GRAFİĞİ FONKSİYONU - Alt marj yazılar sığsın diye genişletildi
                 function getBarOption(titleText, xData, yData, glowColor) {
                     return {
                         title: { text: titleText, textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' }, left: 'center', top: '2%' },
                         tooltip: { trigger: 'axis', backgroundColor: 'rgba(0,0,0,0.8)', textStyle: { color: '#fff' }, axisPointer: { type: 'shadow' } },
-                        grid: { left: '3%', right: '4%', bottom: '15%', top: '20%', containLabel: true },
+                        grid: { left: '3%', right: '4%', bottom: '25%', top: '20%', containLabel: true },
                         xAxis: {
                             type: 'category', data: xData,
-                            axisLabel: { color: '#00f3ff', interval: 0, rotate: 25, fontSize: 10, width: 80, overflow: 'truncate' },
+                            axisLabel: { color: '#00f3ff', interval: 0, rotate: 25, fontSize: 10, width: 90, overflow: 'truncate' },
                             axisLine: { lineStyle: { color: '#00f3ff' } }
                         },
                         yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(0, 243, 255, 0.1)', type: 'dashed' } }, axisLabel: { color: '#00f3ff' } },
@@ -393,22 +389,23 @@ if page == "1. Siparis Dashboard":
                     };
                 }
 
-                // DONUT GRAFİĞİ FONKSİYONU (BİREBİR KORUNDU - DEĞİŞTİRİLMEDİ)
+                // DONUT GRAFİĞİ FONKSİYONU - Kaydırılabilir lejant eklenerek isim taşmaları önlendi
                 function getDonutOption(titleText, chartData) {
                     return {
                         title: { text: titleText, textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' }, left: 'center', top: '2%' },
                         tooltip: { trigger: 'item', backgroundColor: 'rgba(0,0,0,0.8)', textStyle: { color: '#fff' } },
+                        legend: { type: 'scroll', orient: 'vertical', right: '5%', top: '20%', bottom: '10%', textStyle: { color: '#ffffff' }, pageIconColor: '#00f3ff', pageTextStyle: { color: '#fff' } },
                         color: colorPalette,
                         series: [
                             {
-                                type: 'pie', radius: ['45%', '70%'], center: ['50%', '55%'],
+                                type: 'pie', radius: ['40%', '65%'], center: ['40%', '55%'],
                                 itemStyle: { borderRadius: 4, borderColor: '#03050a', borderWidth: 2, shadowBlur: 15, shadowColor: '#00f3ff' },
-                                label: { color: '#fff', fontSize: 13, formatter: '{b}\\n{d}%', fontWeight: 'bold', position: 'outside', textShadowBlur: 8, textShadowColor: '#00f3ff' },
-                                labelLine: { lineStyle: { width: 2 }, length: 20, length2: 15 },
+                                label: { color: '#fff', fontSize: 11, formatter: '{b}\n{d}%', fontWeight: 'bold', position: 'outside', textShadowBlur: 8, textShadowColor: '#00f3ff' },
+                                labelLine: { lineStyle: { width: 2 }, length: 12, length2: 8 },
                                 data: chartData, startAngle: 90, animationDuration: 1000
                             },
                             {
-                                type: 'pie', radius: ['34%', '36%'], center: ['50%', '55%'],
+                                type: 'pie', radius: ['31%', '33%'], center: ['40%', '55%'],
                                 itemStyle: { color: 'transparent', borderColor: '#ff00ff', borderWidth: 2 },
                                 label: { show: false }, labelLine: { show: false }, data: [{value: 1}], startAngle: 90, animation: false
                             }
@@ -416,13 +413,13 @@ if page == "1. Siparis Dashboard":
                     };
                 }
 
-                // YENİ FÜTÜRİSTİK ÇİZGİ GRAFİK TASARIMI (Glow & Gradient Alan Desteğiyle)
+                // ÇİZGİ GRAFİK TASARIMI - Lejant yukarı taşındı, çakışma giderildi
                 function getLineOption(titleText, xData, seriesData) {
                     return {
                         title: { text: titleText, textStyle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' }, left: 'center', top: '2%' },
                         tooltip: { trigger: 'axis', backgroundColor: 'rgba(0,0,0,0.8)', textStyle: { color: '#fff' } },
-                        legend: { bottom: '2%', textStyle: { color: '#ffffff', fontWeight: 'bold' } },
-                        grid: { left: '4%', right: '4%', bottom: '15%', top: '20%', containLabel: true },
+                        legend: { top: '12%', right: '5%', textStyle: { color: '#ffffff', fontWeight: 'bold' } },
+                        grid: { left: '4%', right: '4%', bottom: '15%', top: '25%', containLabel: true },
                         xAxis: { type: 'category', data: xData, axisLabel: { color: '#00f3ff', fontSize: 11 }, axisLine: { lineStyle: { color: '#00f3ff' } } },
                         yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(0, 243, 255, 0.1)', type: 'dashed' } }, axisLabel: { color: '#00f3ff' } },
                         series: seriesData.map(s => ({
@@ -435,8 +432,8 @@ if page == "1. Siparis Dashboard":
                 }
 
                 const charts = {
-                    c1: echarts.init(document.getElementById('c1')), c2: echarts.init(document.getElementById('c2')),
                     c3: echarts.init(document.getElementById('c3')), c4: echarts.init(document.getElementById('c4')),
+                    c1: echarts.init(document.getElementById('c1')), c2: echarts.init(document.getElementById('c2')),
                     c5: echarts.init(document.getElementById('c5')), c6: echarts.init(document.getElementById('c6'))
                 };
 
@@ -451,7 +448,7 @@ if page == "1. Siparis Dashboard":
                     { name: 'Deniz', data: data.c6_sea, color: '#0011ff' }
                 ]));
 
-                // Donut dönme animasyonu sadece c3 ve c4 için korundu
+                // Donut dönme animasyonu
                 let currentAngle = 90;
                 setInterval(() => {
                     currentAngle = (currentAngle - 0.3) % 360; 
@@ -466,7 +463,7 @@ if page == "1. Siparis Dashboard":
         """
         
         html_ready = html_template.replace("__TIMELINE_MATRIX__", json.dumps(timeline_matrix)).replace("__MONTHS_SEQUENCE__", json.dumps(months_sequence))
-        st.components.v1.html(html_ready, height=1800, scrolling=False)
+        st.components.v1.html(html_ready, height=1550, scrolling=False)
 
 
 # --- SAYFA 2: FİRMA BAZLI ANALİZ ---
@@ -532,9 +529,6 @@ elif page == "2. Firma Bazlı Analiz":
                     
             st.markdown(f"**{selected_firma} Veri Listesi:**")
             
-            # ==========================================
-            # YENİ ENJEKTE EDİLEN KISIM: EXCEL İNDİRME BUTONU (SAYFA 2)
-            # ==========================================
             try:
                 df_excel = display_df.copy()
                 drop_cols_excel = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in df_excel.columns]
@@ -552,7 +546,6 @@ elif page == "2. Firma Bazlı Analiz":
                 )
             except Exception as e:
                 st.error(f"Excel indirme motoru hatası: {e}")
-            # ==========================================
 
             display_df_formatted = display_df.copy()
             display_df_formatted['FIYAT'] = display_df_formatted['FIYAT'].map('{:,.2f} $'.format)
@@ -571,9 +564,6 @@ elif page == "3. Ham Veri":
     else:
         st.markdown("Sistem tarafından çekilen ve birleştirilen tüm temizlenmiş ham veriler aşağıdadır:")
         
-        # ==========================================
-        # YENİ ENJEKTE EDİLEN KISIM: EXCEL İNDİRME BUTONU (SAYFA 3)
-        # ==========================================
         try:
             df_excel_all = df_dashboard.copy()
             drop_cols_excel_all = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in df_excel_all.columns]
@@ -590,8 +580,7 @@ elif page == "3. Ham Veri":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         except Exception as e:
-            st.error(f"Genel Excel indirme motoru hatası: {e}")
-        # ==========================================
+            st.error(f"Tüm veri indirme motoru hatası: {e}")
 
         df_all_formatted = df_dashboard.copy()
         df_all_formatted['FIYAT'] = df_all_formatted['FIYAT'].map('{:,.2f} $'.format)
@@ -600,5 +589,4 @@ elif page == "3. Ham Veri":
         drop_cols_all = [c for c in ['ORIJINAL_FIYAT', 'PARA_BIRIMI'] if c in df_all_formatted.columns]
         if drop_cols_all:
             df_all_formatted = df_all_formatted.drop(columns=drop_cols_all)
-            
         st.dataframe(df_all_formatted, use_container_width=True)
