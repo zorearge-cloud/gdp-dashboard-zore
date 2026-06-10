@@ -1,31 +1,48 @@
 import streamlit as st
+import streamlit_authenticator as stauth
 
-def giris_kontrol():
-    if "giris_basarili" not in st.session_state:
-        st.session_state["giris_basarili"] = False
+# 1. Kullanıcı adı, isim ve şifreleri tanımlayın
+# (Şifrelerin kod içinde düz metin kalmaması için hash'lenmesi önerilir)
+credentials = {
+    "usernames": {
+        "orkun": {
+            "name": "Orkun ÖZGÜL",
+            "password": "zore2144"  # Gerçek projede bunu hash'lemelisiniz
+        },
+        "zore": {
+            "name": "Zore Aksesuar",
+            "password": "zore2026"
+        }
+    }
+}
 
-    if not st.session_state["giris_basarili"]:
-        st.title("🔒 Yetkili Girişi")
-        kullanici = st.text_input("Kullanıcı Adı")
-        sifre = st.text_input("Şifre", type="password")
-        
-        if st.button("Giriş Yap"):
-            # Buraya kendi belirlediğiniz ID ve Şifreyi yazın
-            if kullanici == "admin" and sifre == "zore2026":
-                st.session_state["giris_basarili"] = True
-                st.rerun()
-            else:
-                st.error("Hatalı giriş yaptınız!")
-        return False
-    return True
+# 2. Kimlik doğrulayıcıyı oluşturun
+authenticator = stauth.Authenticate(
+    credentials,
+    cookie_name="uygulama_cerezi",
+    key="rastgele_bir_anahtar_kelime",
+    cookie_expiry_days=30
+)
 
-# Eğer giriş yapılmadıysa uygulamanın kalanını çalıştırma
-if giris_kontrol():
-    # --- SİZİN UYGULAMA KODLARINIZ BURAYA GELECEK ---
-    st.title("Gizli Veri Paneli")
-    st.success("Başarıyla giriş yapıldı.")
+# 3. Giriş formunu ekranda gösterin
+name, authentication_status, username = authenticator.login('Giriş Yap', 'main')
+
+# 4. Giriş durumunu kontrol edin
+if authentication_status:
+    # Kullanıcı doğru girdi, uygulamanız buraya yazılacak
+    authenticator.logout('Çıkış Yap', 'sidebar')
+    st.write(#f"Hoş geldiniz, {name}!")
     
-    import streamlit as st
+    # --- SİZİN ASIL KODLARINIZ BURADAN İTİBAREN BAŞLAYACAK ---
+    st.title("Gizli Analiz ve Sipariş Takip Paneli")
+    # pandas, openpyxl kodlarınız vb...
+    
+elif authentication_status == False:
+    st.error('Kullanıcı adı veya şifre hatalı.')
+elif authentication_status == None:
+    st.warning('Lütfen kullanıcı adı ve şifrenizi giriniz.')
+    
+import streamlit as st
 import pandas as pd
 import requests
 import io
