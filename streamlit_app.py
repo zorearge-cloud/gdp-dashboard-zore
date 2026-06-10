@@ -1,46 +1,45 @@
 import streamlit as st
 import streamlit_authenticator as stauth
 
-# 1. Kullanıcı adı, isim ve şifreleri tanımlayın
-# (Şifrelerin kod içinde düz metin kalmaması için hash'lenmesi önerilir)
+# 1. Kullanıcı Bilgilerini Tanımlıyoruz
 credentials = {
     "usernames": {
-        "orkun": {
-            "name": "Orkun ÖZGÜL",
-            "password": "zore2144"  # Gerçek projede bunu hash'lemelisiniz
-        },
-        "zore": {
-            "name": "Zore Aksesuar",
-            "password": "zore2026"
+        "admin": {
+            "name": "Zore",
+            "password": "zore206"  # Buraya kendi şifreni yazabilirsin
         }
     }
 }
 
-# 2. Kimlik doğrulayıcıyı oluşturun
+# 2. Kimlik Doğrulayıcıyı Başlatıyoruz
 authenticator = stauth.Authenticate(
     credentials,
-    cookie_name="uygulama_cerezi",
-    key="rastgele_bir_anahtar_kelime",
+    cookie_name="zore_analiz_cookie",
+    key="zore_gizli_anahtar",
     cookie_expiry_days=30
 )
 
-# 3. Giriş formunu ekranda gösterin
-name, authentication_status, username = authenticator.login('Giriş Yap', 'main')
+# 3. Giriş Formunu En Üstte Çalıştırıyoruz
+name, authentication_status, username = authenticator.login(fields={'Form name': 'Yetkili Girişi'})
 
-# 4. Giriş durumunu kontrol edin
-if authentication_status:
-    # Kullanıcı doğru girdi, uygulamanız buraya yazılacak
-    authenticator.logout('Çıkış Yap', 'sidebar')
-    st.write(#f"Hoş geldiniz, {name}!")
-    
-    # --- SİZİN ASIL KODLARINIZ BURADAN İTİBAREN BAŞLAYACAK ---
-    st.title("Gizli Analiz ve Sipariş Takip Paneli")
-    # pandas, openpyxl kodlarınız vb...
-    
-elif authentication_status == False:
-    st.error('Kullanıcı adı veya şifre hatalı.')
-elif authentication_status == None:
-    st.warning('Lütfen kullanıcı adı ve şifrenizi giriniz.')
+# ==========================================================
+# GİRİŞ KONTROLÜ (Tüm mevcut kodunu koruyan blok)
+# ==========================================================
+if authentication_status == False:
+    st.error("Kullanıcı adı veya şifre hatalı!")
+    st.stop()  # Kodun aşağıya devam etmesini engeller
+
+elif authentication_status is None:
+    st.warning("Lütfen kullanıcı adı ve şifre giriniz.")
+    st.stop()  # Giriş yapılana kadar aşağıdaki analiz kodlarını çalıştırmaz
+
+# Eğer giriş başarılıysa (authentication_status == True) kod durmaz,
+# ve senin aşağıda kalan tüm o grafik, firma analizi ve ciro kodların tıkır tıkır çalışır.
+# ==========================================================
+
+# ... BUNDAN SONRASI SENİN MEVCUT ANALİZ VE GRAFİK KODLARININ AYNISI ...
+st.title("Firma Bazlı Analiz")
+# Firma seçimi, grafikler, tablolar vs...
     
 import streamlit as st
 import pandas as pd
