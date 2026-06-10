@@ -38,7 +38,7 @@ st.success(f"Hoş geldiniz, {st.session_state['name']}!")
 # ==========================================================
 
 # ... BUNDAN SONRASI SENİN MEVCUT ANALİZ VE GRAFİK KODLARININ AYNISI ...
-st.title("Firma Bazlı Analiz")
+st.title("بسم الله الرحمن الرحيم")
     
 import streamlit as st
 import pandas as pd
