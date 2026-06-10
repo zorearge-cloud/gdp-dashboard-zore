@@ -1,4 +1,31 @@
 import streamlit as st
+
+def giris_kontrol():
+    if "giris_basarili" not in st.session_state:
+        st.session_state["giris_basarili"] = False
+
+    if not st.session_state["giris_basarili"]:
+        st.title("🔒 Yetkili Girişi")
+        kullanici = st.text_input("Kullanıcı Adı")
+        sifre = st.text_input("Şifre", type="password")
+        
+        if st.button("Giriş Yap"):
+            # Buraya kendi belirlediğiniz ID ve Şifreyi yazın
+            if kullanici == "admin" and sifre == "zore2026":
+                st.session_state["giris_basarili"] = True
+                st.rerun()
+            else:
+                st.error("Hatalı giriş yaptınız!")
+        return False
+    return True
+
+# Eğer giriş yapılmadıysa uygulamanın kalanını çalıştırma
+if giris_kontrol():
+    # --- SİZİN UYGULAMA KODLARINIZ BURAYA GELECEK ---
+    st.title("Gizli Veri Paneli")
+    st.success("Başarıyla giriş yapıldı.")
+    
+    import streamlit as st
 import pandas as pd
 import requests
 import io
