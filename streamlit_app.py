@@ -1,12 +1,12 @@
 import streamlit as st
 import streamlit_authenticator as stauth
 
-# 1. Kullanıcı Bilgilerini Tanımlıyoruz
+# 1. Kullanıcı Bilgileri
 credentials = {
     "usernames": {
         "admin": {
-            "name": "Zore",
-            "password": "zore206"  # Buraya kendi şifreni yazabilirsin
+            "name": "zore",
+            "password": "zore2026"  # Buraya kendi şifreni yazabilirsin
         }
     }
 }
@@ -19,27 +19,26 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=30
 )
 
-# 3. Giriş Formunu En Üstte Çalıştırıyoruz
-name, authentication_status, username = authenticator.login(fields={'Form name': 'Yetkili Girişi'})
+# 3. YENİ VERSİYON LOGIN (Sadece ekran konumunu belirtiyoruz)
+authenticator.login(location='main')
 
 # ==========================================================
-# GİRİŞ KONTROLÜ (Tüm mevcut kodunu koruyan blok)
+# YENİ VERSİYON GİRİŞ KONTROLÜ (Session State ile çalışır)
 # ==========================================================
-if authentication_status == False:
+if st.session_state["authentication_status"] == False:
     st.error("Kullanıcı adı veya şifre hatalı!")
-    st.stop()  # Kodun aşağıya devam etmesini engeller
+    st.stop()
 
-elif authentication_status is None:
+elif st.session_state["authentication_status"] is None:
     st.warning("Lütfen kullanıcı adı ve şifre giriniz.")
-    st.stop()  # Giriş yapılana kadar aşağıdaki analiz kodlarını çalıştırmaz
+    st.stop()  # Giriş yapılana kadar aşağıdaki kodların çalışmasını engeller
 
-# Eğer giriş başarılıysa (authentication_status == True) kod durmaz,
-# ve senin aşağıda kalan tüm o grafik, firma analizi ve ciro kodların tıkır tıkır çalışır.
+# Giriş başarılıysa kod buraya geçer ve panel açılır:
+st.success(f"Hoş geldiniz, {st.session_state['name']}!")
 # ==========================================================
 
 # ... BUNDAN SONRASI SENİN MEVCUT ANALİZ VE GRAFİK KODLARININ AYNISI ...
 st.title("Firma Bazlı Analiz")
-# Firma seçimi, grafikler, tablolar vs...
     
 import streamlit as st
 import pandas as pd
