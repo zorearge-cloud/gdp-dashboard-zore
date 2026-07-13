@@ -6,7 +6,7 @@ credentials = {
     "usernames": {
         "admin": {
             "name": "zore",
-            "password": "zore2026"  # Buraya kendi şifreni yazabilirsin
+            "password": "zore2026"
         }
     }
 }
@@ -15,9 +15,11 @@ credentials = {
 authenticator = stauth.Authenticate(
     credentials,
     cookie_name="zore_analiz_cookie",
-    key="zore_gizli_anahtar",
+    key="zore_gizli_anahtar_yeterince_uzun_ve_guvenli_32_karakter",  # ← 32+ karakter!
     cookie_expiry_days=30
 )
+
+# REST KOD AYNI...
 
 # 3. YENİ VERSİYON LOGIN (Sadece ekran konumunu belirtiyoruz)
 authenticator.login(location='main')
