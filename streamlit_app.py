@@ -5,7 +5,7 @@ import streamlit_authenticator as stauth
 credentials = {
     "usernames": {
         "admin": {
-            "name": "zore1",
+            "name": "zore",
             "password": "zore2026"
         }
     }
