@@ -65,7 +65,9 @@ LINKS = [
     "https://docs.google.com/spreadsheets/d/11X3KV_JMfJnBRuIk3itsEMoLCh-9_6EqvzzQeb-1CZ0/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1GaiiMv0Fdknx8uQxXSmUY6t54TpWnovAP5De3UQWsTI/export?format=xlsx",
     "https://docs.google.com/spreadsheets/d/1podL1K42WGZOn_f1bHWY_IbLD4QDite_rZZ568Pj8tw/export?format=xlsx",
-    "https://docs.google.com/spreadsheets/d/1YBFKKNgMLt5jneaO-q4BA-fLJvwk4zYjEU1QKHl-Bt0/export?format=xlsx"
+    "https://docs.google.com/spreadsheets/d/1YBFKKNgMLt5jneaO-q4BA-fLJvwk4zYjEU1QKHl-Bt0/export?format=xlsx",
+    "https://docs.google.com/spreadsheets/d/1-0hd6pxToIxqHnpdqPI-fcsBLtvcKMWo665faXVNv6k/export?format=xlsx",
+    "https://docs.google.com/spreadsheets/d/1LJFxk0OZFs258V3KYjJuW0O_QnY1Y8GryCNGs3QExAI/export?format=xlsx"
 
 ]
 
